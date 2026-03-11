@@ -1,0 +1,1535 @@
+---
+title: "Incidental Affect Image Test"
+author: " "
+date: "`r Sys.Date()`"
+output: 
+  pdf_document:
+    toc: true
+---
+
+\newpage
+
+# Admin
+
+```{r libraries, results = "hide", message = FALSE, warning = FALSE}
+
+#setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+library(tidyverse)
+library(lme4)
+library(lmerTest)
+library(emmeans)
+library(brms)
+library(performance)
+library(bridgesampling)
+library(patchwork)
+source("https://raw.githubusercontent.com/vyqlua/avi_functions/refs/heads/main/ipsatize_fn.R")
+conflicted::conflicts_prefer(dplyr::filter)
+conflicted::conflicts_prefer(lmerTest::lmer)
+
+```
+
+# Data cleaning 
+
+```{r load TN data}
+
+# Taiwan Data
+
+d_TN <- read.csv("raw_data/TN_ImageTest.csv", encoding = "UTF-8") %>%
+  dplyr::filter(id != "TEST",
+                Status == 0,
+                IPAddress != "128.252.48.41",
+                Finished == 1,
+                consent1 == 1) %>%
+  distinct(IPAddress, .keep_all = TRUE) %>%
+  distinct(email, .keep_all = TRUE) %>%
+  dplyr::select(-IPAddress, -starts_with("Location"), -starts_with("Recipient"), 
+                -email, -id, -UserLanguage, -Q_DuplicateRespondent, 
+                -(agre_screener:consent1)) %>%
+  dplyr::mutate(Culture = "TN") %>%
+  dplyr::select(StartDate:DistributionChannel, Culture, everything()) 
+
+### NOTE: in qualtrics, arousal and valence question labels are switched.
+
+d_TN <- d_TN %>% 
+  dplyr::rename_with(
+    ~ str_replace_all(.,
+                      c("_arou" = "_VALE",
+                        "_vale" = "_AROU"))) %>%
+  dplyr::rename_with(
+    ~ str_replace_all(.,
+                      c("_AROU" = "_arou",
+                        "_VALE" = "_vale")))
+
+```
+
+```{r load EA data}
+
+# European American Data
+
+d_EA <- read.csv("raw_data/EA_ImageTest.csv", encoding = "UTF-8") %>%
+  dplyr::filter(id != "TEST",
+                Status == 0,
+                Finished == 1,
+                consent1 == 1)  %>%
+  distinct(IPAddress, .keep_all = TRUE) %>%
+  distinct(id, .keep_all = TRUE) %>%
+  dplyr::select(-IPAddress, -starts_with("Location"), -starts_with("Recipient"), 
+                -email, -id, -UserLanguage, -Q_DuplicateRespondent, 
+                -(prescreen_age:consent1)) %>%
+  dplyr::mutate(Culture = "EA") %>%
+  dplyr::select(StartDate:DistributionChannel, Culture, everything()) 
+
+```
+
+```{r merge}
+
+# Merge
+
+d <- rbind(d_EA, d_TN) %>%
+  dplyr::mutate(
+    dplyr::across(X1_neu_vale:age, as.numeric))%>%
+  dplyr::rename_with(
+    ~ str_replace_all(.,
+                      c("1_10" = ".sleepy",
+                        "1_1"  = ".enthusiastic", 
+                        "1_2"  = ".astonished",
+                        "1_3"  = ".nervous",
+                        "1_4"  = ".dull",
+                        "1_5"  = ".quiet",
+                        "1_6"  = ".relaxed",
+                        "1_7"  = ".excited", 
+                        "1_8"  = ".surprised",
+                        "1_9"  = ".elated", 
+                        "2_10" = ".fearful",
+                        "2_1"  = ".still",
+                        "2_2"  = ".lonely",
+                        "2_3"  = ".strong",
+                        "2_4"  = ".passive",
+                        "2_5"  = ".content",
+                        "2_6"  = ".sluggish",
+                        "2_7"  = ".inactive",
+                        "2_8"  = ".sad",
+                        "2_9"  = ".euphoric", 
+                        "3_10" = ".serene",
+                        "3_1"  = ".happy",
+                        "3_2"  = ".idle",
+                        "3_3"  = ".calm",
+                        "3_4"  = ".unhappy",
+                        "3_5"  = ".aroused",
+                        "3_6"  = ".hostile",
+                        "3_7"  = ".satisfied",
+                        "3_8"  = ".rested",
+                        "3_9"  = ".peaceful",
+                        "4_1"  = ".noemotion",
+                        "4_2"  = ".energetic",
+                        "4_3"  = ".ashamed",
+                        "4_4"  = ".disgusted",
+                        "4_5"  = ".stressed",
+                        "4_6"  = ".guilty",
+                        "4_7"  = ".contemptuous",
+                        "4_8"  = ".fatigued",
+                        "4_9"  = ".angry")))
+
+write.csv(d, "imageTestData.csv")
+
+rm(d_EA, d_TN, d)
+
+```
+
+
+# Load data 
+
+```{r load data}
+
+d <- read.csv("imageTestData.csv") %>% dplyr::select(-"X")
+
+```
+
+# Sample Demographics
+
+```{r sample demogs}
+
+# European American
+d %>% dplyr::filter(Culture == "EA") %>%
+  summarize(Culture = "EA",
+            M_age = mean(age, na.rm = T),
+            SD_age = sd(age, na.rm = T),
+            Female = sum(gender == "2", na.rm = T)/ n())
+
+# TN
+d %>% dplyr::filter(Culture == "TN") %>%
+  summarize(Culture = "TN",
+            M_age = mean(age, na.rm = T),
+            SD_age = sd(age, na.rm = T),
+            Female = sum(gender == "2", na.rm = T)/ n())
+
+```
+
+
+# AVI
+
+```{r AVI calculation real affect}
+d <- d %>% 
+  ipsatize_avi("r.", 
+               remove = c("euphoric", "contemptuous", "angry"), 
+               full_avi = TRUE, 
+               maximizing_pos = TRUE)
+```
+
+```{r AVI calculation ideal affect}
+d <- d %>% 
+  ipsatize_avi("i.", 
+               remove = c("euphoric", "contemptuous", "angry"), 
+               full_avi = TRUE, 
+               maximizing_pos = TRUE) 
+```
+
+```{r plot avi, results = "hide"}
+
+plot_avi(
+  d %>% dplyr::select(Culture, rHAP:rMaxPos_ip, iHAP:iMaxPos_ip), 
+  "Culture")
+
+```
+
+\newpage
+
+# Continuous Valence & Arousal
+
+```{r compute composite scores for vale and arou}
+
+d <- d %>% dplyr::mutate(
+  han_vale = dplyr::across(contains("_han_vale")) %>% rowMeans(),
+  han_arou = dplyr::across(contains("_han_arou")) %>% rowMeans(),
+  hap_vale = dplyr::across(contains("_hap_vale")) %>% rowMeans(),
+  hap_arou = dplyr::across(contains("_hap_arou")) %>% rowMeans(),
+  neu_vale = dplyr::across(contains("_neu_vale")) %>% rowMeans(),
+  neu_arou = dplyr::across(contains("_neu_arou")) %>% rowMeans())
+
+```
+
+## Valence
+
+### Plot
+
+```{r plot valence, echo = FALSE}
+
+d1 <- d %>% dplyr::select(ResponseId, Culture, han_vale:neu_arou)
+
+d1_long <- d1 %>%
+  pivot_longer(
+    cols = han_vale:neu_arou,
+    names_to = "dimension",
+    values_to = "value"
+  ) %>%
+  filter(grepl("_vale$", dimension))
+
+d1_summary <- d1_long %>%
+  group_by(Culture, dimension) %>%
+  summarise(mean_value = mean(value, na.rm = TRUE), 
+            se = sd(value, na.rm = TRUE) / sqrt(sum(!is.na(value))),
+            .groups = "drop")
+
+ggplot() +
+  geom_col(
+    data = d1_summary,
+    aes(x = dimension, y = mean_value, fill = Culture),
+    width = 0.7
+  ) +
+  geom_jitter(
+    data = d1_long,
+    aes(x = dimension, y = value, color = Culture),
+    width = 0.15,
+    alpha = 0.4,
+    size = 1.5
+  ) +
+  geom_errorbar(
+    data = d1_summary,
+    aes(
+      x = dimension,
+      ymin = mean_value - se,
+      ymax = mean_value + se
+    ),
+    width = 0.2
+  ) +
+  facet_wrap(~ Culture) +
+  labs(
+    x = "Image Type",
+    y = "Valence Rating"
+  ) +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  coord_cartesian(ylim = c(1, NA)) +
+  scale_y_continuous(breaks = seq(1, 7, by = 1)) +
+  scale_fill_manual(values = c("TN" = "#52B2CF", "EA" = "#F49070"))
+
+rm(d1, d1_long, d1_summary)
+```
+
+\newpage
+
+```{r plot valence ipsatized, echo = FALSE}
+
+d_vale <- d %>% 
+  dplyr::select(ResponseId, Culture, 
+                contains("_vale"),
+                -hap_vale, -han_vale, -neu_vale)
+
+d_vale_long <- d_vale %>%
+  pivot_longer(
+    cols = -c(ResponseId, Culture),
+    names_to = "dimension",
+    values_to = "value"
+  ) %>%
+  dplyr::mutate(
+    image_no = str_extract(dimension, "(?<=^X)[0-9]+"),
+    affect = substr(dimension, nchar(dimension)-7, nchar(dimension)-5))
+
+d_vale_long <- d_vale_long %>%
+  group_by(ResponseId) %>%
+  dplyr::mutate(
+    value = (value - mean(value, na.rm = T)) / sd(value, na.rm = T)) %>%
+  ungroup() 
+
+d_vale_long <- d_vale_long %>%
+  group_by(ResponseId, Culture, affect) %>%
+  dplyr::summarize(value = mean(value)) %>%
+  ungroup()
+
+d1_summary <- d_vale_long %>%
+  group_by(Culture, affect) %>%
+  summarise(mean_value = mean(value, na.rm = TRUE), 
+            se = sd(value, na.rm = TRUE) / sqrt(sum(!is.na(value))),
+            .groups = "drop")
+
+ggplot() +
+  geom_col(
+    data = d1_summary,
+    aes(x = affect, y = mean_value, fill = Culture),
+    width = 0.7
+  ) +
+  geom_jitter(
+    data = d_vale_long,
+    aes(x = affect, y = value, color = Culture),
+    width = 0.15,
+    alpha = 0.4,
+    size = 1.5
+  ) +
+  geom_errorbar(
+    data = d1_summary,
+    aes(
+      x = affect,
+      ymin = mean_value - se,
+      ymax = mean_value + se
+    ),
+    width = 0.2
+  ) +
+  facet_wrap(~ Culture) +
+  labs(
+    x = "Image Type",
+    y = "Valence Rating (Ipsatized)"
+  ) +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  scale_fill_manual(values = c("TN" = "#52B2CF", "EA" = "#F49070"))
+
+
+rm(d_vale, d_vale_long, d1_summary)
+```
+
+\newpage
+
+### By Image Type
+
+```{r create long valence data for analysis, results = "hide"}
+
+# create long valence data for analysis
+
+d_vale <- d %>% 
+  dplyr::select(ResponseId, Culture, 
+                contains("_vale"),
+                -hap_vale, -han_vale, -neu_vale)
+
+d_vale_long <- d_vale %>%
+  pivot_longer(
+    cols = -c(ResponseId, Culture),
+    names_to = "dimension",
+    values_to = "value"
+  ) %>%
+  dplyr::mutate(
+    image_no = str_extract(dimension, "(?<=^X)[0-9]+"),
+    affect = substr(dimension, nchar(dimension)-7, nchar(dimension)-5))
+
+# ipsatize valence ratings
+
+d_vale_long <- d_vale_long %>%
+  group_by(ResponseId) %>%
+  dplyr::mutate(
+    value_ip = (value - mean(value, na.rm = T)) / sd(value, na.rm = T)) %>%
+  ungroup()
+
+```
+
+```{r analysis for valence by image type, message = FALSE}
+
+# non-ip
+rating_by_imagetype <- 
+  lmer(value ~ affect + (1 | ResponseId) + (1 | image_no),
+       data = d_vale_long,
+       REML = FALSE) 
+
+summary(rating_by_imagetype)
+emmeans(rating_by_imagetype, pairwise ~ affect)
+
+```
+
+```{r analysis for valence by image type ipsatized, message = FALSE}
+
+#ip
+rating_by_imagetype_ip <- 
+  lmer(value_ip ~ affect + (1 | image_no),
+       data = d_vale_long,
+       REML = FALSE) # removed (1 | responseID) since its ipsatized 
+
+summary(rating_by_imagetype_ip)
+emmeans(rating_by_imagetype_ip, pairwise ~ affect)
+
+```
+
+\newpage
+
+### By Image Type * Culture
+
+```{r analysis for valence by image type * culture, message = FALSE}
+
+#non-ip
+
+rating_by_imagetype_culture <- 
+  lmer(value ~ affect * Culture + (1 | ResponseId) + (1 | image_no),
+       data = d_vale_long,
+       REML = FALSE) 
+
+summary(rating_by_imagetype_culture)
+emmeans(rating_by_imagetype_culture, pairwise ~ affect | Culture)
+emmeans(rating_by_imagetype_culture, pairwise ~ Culture | affect)
+
+```
+```{r model comparison for valence by image type * culture}
+
+print("nonip ratings"); r2(rating_by_imagetype); r2(rating_by_imagetype_culture)
+
+```
+
+\newpage
+
+```{r analysis for valence by image type * culture ipsatized, message = FALSE}
+
+# ip
+rating_by_imagetype_culture_ip <- 
+  lmer(value_ip ~ affect * Culture + (1 | image_no),
+       data = d_vale_long,
+       REML = FALSE) # removed (1 | responseID) since its ipsatized 
+
+summary(rating_by_imagetype_culture_ip)
+# emmeans(rating_by_imagetype_culture_ip, pairwise ~ affect | Culture)
+emmeans(rating_by_imagetype_culture_ip, pairwise ~ Culture | affect)
+
+```
+```{r model comparison for valence by image type * culture ipsatized}
+
+print("ip ratings"); r2(rating_by_imagetype_ip); r2(rating_by_imagetype_culture_ip)
+
+```
+
+```{r clean environment valence, echo = FALSE}
+rm(d_vale, d_vale_long, 
+   rating_by_imagetype, rating_by_imagetype_ip, 
+   rating_by_imagetype_culture, rating_by_imagetype_culture_ip)
+```
+
+\newpage
+
+## Arousal
+
+### Plot
+
+```{r plot arousal, echo = FALSE}
+
+d1 <- d %>% dplyr::select(ResponseId, Culture, han_vale:neu_arou)
+
+d1_long <- d1 %>%
+  pivot_longer(
+    cols = han_vale:neu_arou,
+    names_to = "dimension",
+    values_to = "value"
+  ) %>%
+  filter(grepl("_arou$", dimension))
+
+d1_summary <- d1_long %>%
+  group_by(Culture, dimension) %>%
+  summarise(mean_value = mean(value, na.rm = TRUE), 
+            se = sd(value, na.rm = TRUE) / sqrt(sum(!is.na(value))),
+            .groups = "drop")
+
+ggplot() +
+  geom_col(
+    data = d1_summary,
+    aes(x = dimension, y = mean_value, fill = Culture),
+    width = 0.7
+  ) +
+  geom_jitter(
+    data = d1_long,
+    aes(x = dimension, y = value, color = Culture),
+    width = 0.15,
+    alpha = 0.4,
+    size = 1.5
+  ) +
+  geom_errorbar(
+    data = d1_summary,
+    aes(
+      x = dimension,
+      ymin = mean_value - se,
+      ymax = mean_value + se
+    ),
+    width = 0.2
+  ) +
+  facet_wrap(~ Culture) +
+  labs(
+    x = "Image Type",
+    y = "Arousal Rating"
+  ) +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  coord_cartesian(ylim = c(1, NA)) +
+  scale_y_continuous(breaks = seq(1, 7, by = 1)) +
+  scale_fill_manual(values = c("TN" = "#52B2CF", "EA" = "#F49070"))
+
+
+rm(d1, d1_long, d1_summary)
+```
+
+\newpage
+
+```{r plot arousal ipsatized, echo = FALSE}
+
+d_arou <- d %>% 
+  dplyr::select(ResponseId, Culture, 
+                contains("_arou"),
+                -hap_arou, -han_arou, -neu_arou)
+
+d_arou_long <- d_arou %>%
+  pivot_longer(
+    cols = -c(ResponseId, Culture),
+    names_to = "dimension",
+    values_to = "value"
+  ) %>%
+  dplyr::mutate(
+    image_no = str_extract(dimension, "(?<=^X)[0-9]+"),
+    affect = substr(dimension, nchar(dimension)-7, nchar(dimension)-5))
+
+d_arou_long <- d_arou_long %>%
+  group_by(ResponseId) %>%
+  dplyr::mutate(
+    value = (value - mean(value, na.rm = T)) / sd(value, na.rm = T)) %>%
+  ungroup()
+
+d_arou_long <- d_arou_long %>%
+  group_by(ResponseId, Culture, affect) %>%
+  dplyr::summarize(value = mean(value)) %>%
+  ungroup()
+
+d1_summary <- d_arou_long %>%
+  group_by(Culture, affect) %>%
+  summarise(mean_value = mean(value, na.rm = TRUE), 
+            se = sd(value, na.rm = TRUE) / sqrt(sum(!is.na(value))),
+            .groups = "drop")
+
+ggplot() +
+  geom_col(
+    data = d1_summary,
+    aes(x = affect, y = mean_value, fill = Culture),
+    width = 0.7
+  ) +
+  geom_jitter(
+    data = d_arou_long,
+    aes(x = affect, y = value, color = Culture),
+    width = 0.15,
+    alpha = 0.4,
+    size = 1.5
+  ) +
+  geom_errorbar(
+    data = d1_summary,
+    aes(
+      x = affect,
+      ymin = mean_value - se,
+      ymax = mean_value + se
+    ),
+    width = 0.2
+  ) +
+  facet_wrap(~ Culture) +
+  labs(
+    x = "Image Type",
+    y = "Arousal Rating (Ipsatized)"
+  ) +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  scale_fill_manual(values = c("TN" = "#52B2CF", "EA" = "#F49070"))
+
+
+rm(d_arou, d_arou_long, d1_summary)
+```
+
+\newpage
+
+### By Image Type
+
+```{r create long arousal data for analysis}
+
+d_arou <- d %>% 
+  dplyr::select(ResponseId, Culture, 
+                contains("_arou"),
+                -hap_arou, -han_arou, -neu_arou)
+
+d_arou_long <- d_arou %>%
+  pivot_longer(
+    cols = -c(ResponseId, Culture),
+    names_to = "dimension",
+    values_to = "value"
+  ) %>%
+  dplyr::mutate(
+    image_no = str_extract(dimension, "(?<=^X)[0-9]+"),
+    affect = substr(dimension, nchar(dimension)-7, nchar(dimension)-5))
+
+# ipsatize arousal ratings
+
+d_arou_long <- d_arou_long %>%
+  group_by(ResponseId) %>%
+  dplyr::mutate(
+    value_ip = (value - mean(value, na.rm = T)) / sd(value, na.rm = T)) %>%
+  ungroup()
+
+```
+
+```{r analysis for arousal by image type, message = FALSE}
+
+arousal_by_imagetype <- 
+  lmer(value ~ affect + (1 | ResponseId) + (1 | image_no),
+       data = d_arou_long) 
+
+summary(arousal_by_imagetype)
+emmeans(arousal_by_imagetype, pairwise ~ affect)
+
+```
+
+```{r analysis for arousal by image type ipsatized, message = FALSE}
+
+arousal_by_imagetype_ip <- 
+  lmer(value_ip ~ affect + (1 | image_no),
+       data = d_arou_long) 
+
+summary(arousal_by_imagetype_ip)
+emmeans(arousal_by_imagetype_ip, pairwise ~ affect)
+
+```
+
+\newpage
+
+### By Image Type * Culture
+
+```{r analysis for arousal by image type * culture}
+
+arousal_by_imagetype_culture <- 
+  lmer(value ~ affect * Culture + (1 | ResponseId) + (1 | image_no),
+       data = d_arou_long) 
+
+summary(arousal_by_imagetype_culture)
+emmeans(arousal_by_imagetype_culture, pairwise ~ affect | Culture)
+emmeans(arousal_by_imagetype_culture, pairwise ~ Culture | affect)
+
+```
+```{r model comparison for arousal by image type * culture}
+
+print("nonip arousals"); r2(arousal_by_imagetype); r2(arousal_by_imagetype_culture)
+
+```
+
+\newpage
+
+```{r analysis for arousal by image type * culture ipsatized, message = FALSE}
+
+arousal_by_imagetype_culture_ip <- 
+  lmer(value_ip ~ affect * Culture + (1 | image_no),
+       data = d_arou_long) 
+
+summary(arousal_by_imagetype_culture_ip)
+#emmeans(arousal_by_imagetype_culture_ip, pairwise ~ affect | Culture)
+emmeans(arousal_by_imagetype_culture_ip, pairwise ~ Culture | affect)
+
+```
+```{r model comparison for arousal by image type * culture ipsatized}
+
+print("ip arousals"); r2(arousal_by_imagetype_ip); r2(arousal_by_imagetype_culture_ip)
+
+```
+
+```{r clean environment arousal, echo = FALSE}
+rm(d_arou, d_arou_long, 
+   arousal_by_imagetype, arousal_by_imagetype_ip, 
+   arousal_by_imagetype_culture, arousal_by_imagetype_culture_ip)
+```
+
+
+\newpage
+
+# Discrete Emotions
+
+Discrete Emotions:
+1 Angry
+2 Disgusted
+3 Afraid
+4 Sad
+5 Bored
+6 Anxious
+7 Tired
+8 Calm
+9 Happy
+10 Excited
+11 Surprised
+12 Energized
+13 Elated
+14 Neutral
+15 No Emotion
+
+
+```{r fig.width = 10, echo = FALSE}
+
+d1 <- d %>% dplyr::select(ResponseId, Culture, contains("_feel")) %>%
+  dplyr::mutate(
+    dplyr::across(contains("_feel"), 
+                  ~ factor(.x, 
+                           levels = 1:15,
+                           labels = 
+                             c(
+                               "Angry",
+                               "Disgusted", 
+                               "Afraid",
+                               "Sad",
+                               "Bored",
+                               "Anxious",
+                               "Tired",
+                               "Calm",
+                               "Happy",
+                               "Excited",
+                               "Surprised",
+                               "Energized",
+                               "Elated",
+                               "Neutral",
+                               "NOEmotion"))))
+
+d1_long <- d1 %>%
+  pivot_longer(
+    cols = ends_with("_feel"),
+    names_to = "item",
+    values_to = "emotion"
+  ) %>%
+  filter(!is.na(emotion)) %>%
+  mutate(
+    condition = case_when(
+      str_detect(item, "_han_") ~ "han",
+      str_detect(item, "_hap_") ~ "hap",
+      str_detect(item, "_neu_") ~ "neu"
+    )
+  )
+
+d1_counts <- d1_long %>%
+  group_by(Culture, condition, emotion) %>%
+  summarise(n = n(), .groups = "drop")
+
+ggplot(d1_counts, aes(x = emotion, y = n, fill = Culture)) +
+  geom_col(position = "dodge") +
+  facet_wrap(~ condition, nrow = 1) +
+  labs(
+    x = "Reported Emotion",
+    y = "Count"
+  ) +
+  theme_classic() +
+  theme(
+    axis.text.x = element_text(angle = 65, hjust = 1)
+  ) + 
+  ggtitle("Which emotion does this image make you feel?")
+
+```
+
+```{r fig.width = 10, echo = FALSE}
+
+d1 <- d %>% dplyr::select(ResponseId, Culture, contains("_desc")) %>%
+  dplyr::mutate(
+    dplyr::across(contains("_desc"), 
+                  ~ factor(.x, 
+                           levels = 1:15,
+                           labels = 
+                             c(
+                               "Angry",
+                               "Disgusted", 
+                               "Afraid",
+                               "Sad",
+                               "Bored",
+                               "Anxious",
+                               "Tired",
+                               "Calm",
+                               "Happy",
+                               "Excited",
+                               "Surprised",
+                               "Energized",
+                               "Elated",
+                               "Neutral",
+                               "NOEmotion"))))
+
+d1_long <- d1 %>%
+  pivot_longer(
+    cols = ends_with("_desc"),
+    names_to = "item",
+    values_to = "emotion"
+  ) %>%
+  filter(!is.na(emotion)) %>%
+  mutate(
+    condition = case_when(
+      str_detect(item, "_han_") ~ "han",
+      str_detect(item, "_hap_") ~ "hap",
+      str_detect(item, "_neu_") ~ "neu"
+    )
+  )
+
+d1_counts <- d1_long %>%
+  group_by(Culture, condition, emotion) %>%
+  summarise(n = n(), .groups = "drop")
+
+ggplot(d1_counts, aes(x = emotion, y = n, fill = Culture)) +
+  geom_col(position = "dodge") +
+  facet_wrap(~ condition, nrow = 1) +
+  labs(
+    x = "Reported Emotion",
+    y = "Count"
+  ) +
+  theme_classic() +
+  theme(
+    axis.text.x = element_text(angle = 65, hjust = 1)
+  ) + 
+  ggtitle("Which emotion BEST describes this image?")
+```
+
+\newpage
+
+# Individual Image Ratings (Raw Valence)
+
+```{r HAN Val, echo = FALSE}
+
+d_han <- d %>% dplyr::select(Culture, contains("_han_vale")) 
+
+d_han_long <- d_han %>%
+  pivot_longer(
+    cols = starts_with("X"),
+    names_to = "item",
+    values_to = "value"
+  )
+
+
+p1 <- ggplot(d_han_long, aes(x = item, y = value, color = Culture)) +
+  geom_jitter(
+    position = position_jitterdodge(jitter.width = 0.2, jitter.height = 0.2, dodge.width = 0.6),
+    alpha = 0.05,
+    size = 0.5
+  ) +
+  stat_summary(
+    fun = mean,
+    geom = "point",
+    position = position_dodge(width = 0.6),
+    size = 3,
+    shape = 18
+  ) +
+  stat_summary(
+    fun.data = mean_se,
+    geom = "errorbar",
+    position = position_dodge(width = 0.6),
+    width = 0.2
+  ) +
+  theme_bw() +
+  labs(
+    x = "Han Valence item",
+    y = "Rating",
+    color = "Culture"
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )  +
+  scale_y_continuous(breaks = seq(1, 7, by = 1))
+
+
+```
+
+```{r Neu Val, echo = FALSE}
+
+d_neu <- d %>% dplyr::select(Culture, contains("_neu_vale")) 
+
+d_neu_long <- d_neu %>%
+  pivot_longer(
+    cols = starts_with("X"),
+    names_to = "item",
+    values_to = "value"
+  )
+
+
+p2 <- ggplot(d_neu_long, aes(x = item, y = value, color = Culture)) +
+  geom_jitter(
+    position = position_jitterdodge(jitter.width = 0.2, jitter.height = 0.2, dodge.width = 0.6),
+    alpha = 0.05,
+    size = 0.5
+  ) +
+  stat_summary(
+    fun = mean,
+    geom = "point",
+    position = position_dodge(width = 0.6),
+    size = 3,
+    shape = 18
+  ) +
+  stat_summary(
+    fun.data = mean_se,
+    geom = "errorbar",
+    position = position_dodge(width = 0.6),
+    width = 0.2
+  ) +
+  theme_bw() +
+  labs(
+    x = "Neu Valence item",
+    y = "Rating",
+    color = "Culture"
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )  +
+  scale_y_continuous(breaks = seq(1, 7, by = 1))
+
+```
+
+```{r HAP Val, echo = FALSE}
+
+d_hap <- d %>% dplyr::select(Culture, contains("_hap_vale")) 
+
+d_hap_long <- d_hap %>%
+  pivot_longer(
+    cols = starts_with("X"),
+    names_to = "item",
+    values_to = "value"
+  )
+
+
+p3 <- ggplot(d_hap_long, aes(x = item, y = value, color = Culture)) +
+  geom_jitter(
+    position = position_jitterdodge(jitter.width = 0.2, jitter.height = 0.2, dodge.width = 0.6),
+    alpha = 0.05,
+    size = 0.5
+  ) +
+  stat_summary(
+    fun = mean,
+    geom = "point",
+    position = position_dodge(width = 0.6),
+    size = 3,
+    shape = 18
+  ) +
+  stat_summary(
+    fun.data = mean_se,
+    geom = "errorbar",
+    position = position_dodge(width = 0.6),
+    width = 0.2
+  ) +
+  theme_bw() +
+  labs(
+    x = "HAP Valence item",
+    y = "Rating",
+    color = "Culture"
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )  +
+  scale_y_continuous(breaks = seq(1, 7, by = 1))
+
+```
+
+```{r 3 Plots Raw Val, warning = FALSE, fig.width = 15}
+
+p1 + p2 + p3 +
+  patchwork::plot_layout(ncol = 3)
+
+```
+
+
+# Individual Image Ratings (Ipsatized Valence)
+
+```{r Val Ip, echo = FALSE}
+
+d_ip <- d %>%
+  rowwise() %>%
+  dplyr::mutate(
+    vale_m =  mean(c_across(contains("X") & contains("_vale")), na.rm = TRUE),
+    vale_sd =  sd(c_across(contains("X") & contains("_vale")), na.rm = TRUE)) %>% 
+  ungroup() %>%
+  rowwise() %>%
+  dplyr::mutate(
+    across(
+      contains("X") & contains("_vale"),
+      ~ (.x - vale_m) / vale_sd))
+
+```
+
+```{r HAN Val Ip, echo = FALSE}
+
+d_han <- d_ip %>% dplyr::select(Culture, contains("_han_vale")) 
+
+d_han_long <- d_han %>%
+  pivot_longer(
+    cols = starts_with("X"),
+    names_to = "item",
+    values_to = "value"
+  )
+
+
+p1 <- ggplot(d_han_long, aes(x = item, y = value, color = Culture)) +
+  geom_jitter(
+    position = position_jitterdodge(jitter.width = 0.2, jitter.height = 0.2, dodge.width = 0.6),
+    alpha = 0.05,
+    size = 0.5
+  ) +
+  stat_summary(
+    fun = mean,
+    geom = "point",
+    position = position_dodge(width = 0.6),
+    size = 3,
+    shape = 18
+  ) +
+  stat_summary(
+    fun.data = mean_se,
+    geom = "errorbar",
+    position = position_dodge(width = 0.6),
+    width = 0.2
+  ) +
+  theme_bw() +
+  labs(
+    x = "Han Valence item",
+    y = "Rating",
+    color = "Culture"
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+
+```
+
+```{r Neu Val Ip, echo = FALSE}
+
+d_neu <- d_ip %>% dplyr::select(Culture, contains("_neu_vale")) 
+
+d_neu_long <- d_neu %>%
+  pivot_longer(
+    cols = starts_with("X"),
+    names_to = "item",
+    values_to = "value"
+  )
+
+
+p2 <- ggplot(d_neu_long, aes(x = item, y = value, color = Culture)) +
+  geom_jitter(
+    position = position_jitterdodge(jitter.width = 0.2, jitter.height = 0.2, dodge.width = 0.6),
+    alpha = 0.05,
+    size = 0.5
+  ) +
+  stat_summary(
+    fun = mean,
+    geom = "point",
+    position = position_dodge(width = 0.6),
+    size = 3,
+    shape = 18
+  ) +
+  stat_summary(
+    fun.data = mean_se,
+    geom = "errorbar",
+    position = position_dodge(width = 0.6),
+    width = 0.2
+  ) +
+  theme_bw() +
+  labs(
+    x = "Neu Valence item",
+    y = "Rating",
+    color = "Culture"
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  ) 
+
+```
+
+```{r HAP Val Ip, echo = FALSE}
+
+d_hap <- d_ip %>% dplyr::select(Culture, contains("_hap_vale")) 
+
+d_hap_long <- d_hap %>%
+  pivot_longer(
+    cols = starts_with("X"),
+    names_to = "item",
+    values_to = "value"
+  )
+
+
+p3 <- ggplot(d_hap_long, aes(x = item, y = value, color = Culture)) +
+  geom_jitter(
+    position = position_jitterdodge(jitter.width = 0.2, jitter.height = 0.2, dodge.width = 0.6),
+    alpha = 0.05,
+    size = 0.5
+  ) +
+  stat_summary(
+    fun = mean,
+    geom = "point",
+    position = position_dodge(width = 0.6),
+    size = 3,
+    shape = 18
+  ) +
+  stat_summary(
+    fun.data = mean_se,
+    geom = "errorbar",
+    position = position_dodge(width = 0.6),
+    width = 0.2
+  ) +
+  theme_bw() +
+  labs(
+    x = "HAP Valence item",
+    y = "Rating",
+    color = "Culture"
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  ) 
+
+```
+
+```{r 3 Plots Ip Val, warning = FALSE, fig.width = 15}
+
+p1 + p2 + p3 +
+  patchwork::plot_layout(ncol = 3)
+
+```
+
+\newpage
+
+# Individual Image Ratings (Raw Arousal)
+
+```{r HAN Arou, echo = FALSE}
+
+d_han <- d %>% dplyr::select(Culture, contains("_han_arou")) 
+
+d_han_long <- d_han %>%
+  pivot_longer(
+    cols = starts_with("X"),
+    names_to = "item",
+    values_to = "value"
+  )
+
+
+p1 <- ggplot(d_han_long, aes(x = item, y = value, color = Culture)) +
+  geom_jitter(
+    position = position_jitterdodge(jitter.width = 0.2, jitter.height = 0.2, dodge.width = 0.6),
+    alpha = 0.05,
+    size = 0.5
+  ) +
+  stat_summary(
+    fun = mean,
+    geom = "point",
+    position = position_dodge(width = 0.6),
+    size = 3,
+    shape = 18
+  ) +
+  stat_summary(
+    fun.data = mean_se,
+    geom = "errorbar",
+    position = position_dodge(width = 0.6),
+    width = 0.2
+  ) +
+  theme_bw() +
+  labs(
+    x = "Han Arousal item",
+    y = "Rating",
+    color = "Culture"
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )  +
+  scale_y_continuous(breaks = seq(1, 7, by = 1))
+
+
+```
+
+```{r Neu Arou, echo = FALSE}
+
+d_neu <- d %>% dplyr::select(Culture, contains("_neu_arou")) 
+
+d_neu_long <- d_neu %>%
+  pivot_longer(
+    cols = starts_with("X"),
+    names_to = "item",
+    values_to = "value"
+  )
+
+
+p2 <- ggplot(d_neu_long, aes(x = item, y = value, color = Culture)) +
+  geom_jitter(
+    position = position_jitterdodge(jitter.width = 0.2, jitter.height = 0.2, dodge.width = 0.6),
+    alpha = 0.05,
+    size = 0.5
+  ) +
+  stat_summary(
+    fun = mean,
+    geom = "point",
+    position = position_dodge(width = 0.6),
+    size = 3,
+    shape = 18
+  ) +
+  stat_summary(
+    fun.data = mean_se,
+    geom = "errorbar",
+    position = position_dodge(width = 0.6),
+    width = 0.2
+  ) +
+  theme_bw() +
+  labs(
+    x = "Neu Arousal item",
+    y = "Rating",
+    color = "Culture"
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )  +
+  scale_y_continuous(breaks = seq(1, 7, by = 1))
+
+```
+
+```{r HAP Arou, echo = FALSE}
+
+d_hap <- d %>% dplyr::select(Culture, contains("_hap_arou")) 
+
+d_hap_long <- d_hap %>%
+  pivot_longer(
+    cols = starts_with("X"),
+    names_to = "item",
+    values_to = "value"
+  )
+
+
+p3 <- ggplot(d_hap_long, aes(x = item, y = value, color = Culture)) +
+  geom_jitter(
+    position = position_jitterdodge(jitter.width = 0.2, jitter.height = 0.2, dodge.width = 0.6),
+    alpha = 0.05,
+    size = 0.5
+  ) +
+  stat_summary(
+    fun = mean,
+    geom = "point",
+    position = position_dodge(width = 0.6),
+    size = 3,
+    shape = 18
+  ) +
+  stat_summary(
+    fun.data = mean_se,
+    geom = "errorbar",
+    position = position_dodge(width = 0.6),
+    width = 0.2
+  ) +
+  theme_bw() +
+  labs(
+    x = "HAP Arousal item",
+    y = "Rating",
+    color = "Culture"
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )  +
+  scale_y_continuous(breaks = seq(1, 7, by = 1))
+
+```
+
+```{r 3 Plots Raw Arou, warning = FALSE, fig.width = 15}
+
+p1 + p2 + p3 +
+  patchwork::plot_layout(ncol = 3)
+
+```
+
+
+# Individual Image Ratings (Ipsatized Arousal)
+
+```{r Arou Ip, echo = FALSE}
+
+d_ip <- d_ip %>%
+  rowwise() %>%
+  dplyr::mutate(
+    arou_m =  mean(c_across(contains("X") & contains("_arou")), na.rm = TRUE),
+    arou_sd =  sd(c_across(contains("X") & contains("_arou")), na.rm = TRUE)) %>% 
+  ungroup() %>%
+  rowwise() %>%
+  dplyr::mutate(
+    across(
+      contains("X") & contains("_arou"),
+      ~ (.x - arou_m) / arou_sd))
+
+```
+
+```{r HAN Arou Ip, echo = FALSE}
+
+d_han <- d_ip %>% dplyr::select(Culture, contains("_han_arou")) 
+
+d_han_long <- d_han %>%
+  pivot_longer(
+    cols = starts_with("X"),
+    names_to = "item",
+    values_to = "value"
+  )
+
+
+p1 <- ggplot(d_han_long, aes(x = item, y = value, color = Culture)) +
+  geom_jitter(
+    position = position_jitterdodge(jitter.width = 0.2, jitter.height = 0.2, dodge.width = 0.6),
+    alpha = 0.05,
+    size = 0.5
+  ) +
+  stat_summary(
+    fun = mean,
+    geom = "point",
+    position = position_dodge(width = 0.6),
+    size = 3,
+    shape = 18
+  ) +
+  stat_summary(
+    fun.data = mean_se,
+    geom = "errorbar",
+    position = position_dodge(width = 0.6),
+    width = 0.2
+  ) +
+  theme_bw() +
+  labs(
+    x = "Han Arousal item",
+    y = "Rating",
+    color = "Culture"
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  ) 
+
+```
+
+```{r Neu Arou Ip, echo = FALSE}
+
+d_neu <- d_ip %>% dplyr::select(Culture, contains("_neu_arou")) 
+
+d_neu_long <- d_neu %>%
+  pivot_longer(
+    cols = starts_with("X"),
+    names_to = "item",
+    values_to = "value"
+  )
+
+
+p2 <- ggplot(d_neu_long, aes(x = item, y = value, color = Culture)) +
+  geom_jitter(
+    position = position_jitterdodge(jitter.width = 0.2, jitter.height = 0.2, dodge.width = 0.6),
+    alpha = 0.05,
+    size = 0.5
+  ) +
+  stat_summary(
+    fun = mean,
+    geom = "point",
+    position = position_dodge(width = 0.6),
+    size = 3,
+    shape = 18
+  ) +
+  stat_summary(
+    fun.data = mean_se,
+    geom = "errorbar",
+    position = position_dodge(width = 0.6),
+    width = 0.2
+  ) +
+  theme_bw() +
+  labs(
+    x = "Neu Arousal item",
+    y = "Rating",
+    color = "Culture"
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  ) 
+
+```
+
+```{r HAP Arou Ip, echo = FALSE}
+
+d_hap <- d_ip %>% dplyr::select(Culture, contains("_hap_arou")) 
+
+d_hap_long <- d_hap %>%
+  pivot_longer(
+    cols = starts_with("X"),
+    names_to = "item",
+    values_to = "value"
+  )
+
+
+p3 <- ggplot(d_hap_long, aes(x = item, y = value, color = Culture)) +
+  geom_jitter(
+    position = position_jitterdodge(jitter.width = 0.2, jitter.height = 0.2, dodge.width = 0.6),
+    alpha = 0.05,
+    size = 0.5
+  ) +
+  stat_summary(
+    fun = mean,
+    geom = "point",
+    position = position_dodge(width = 0.6),
+    size = 3,
+    shape = 18
+  ) +
+  stat_summary(
+    fun.data = mean_se,
+    geom = "errorbar",
+    position = position_dodge(width = 0.6),
+    width = 0.2
+  ) +
+  theme_bw() +
+  labs(
+    x = "HAP Arousal item",
+    y = "Rating",
+    color = "Culture"
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  ) 
+
+```
+
+```{r 3 Plots Ip Arou, warning = FALSE, fig.width = 15}
+
+p1 + p2 + p3 +
+  patchwork::plot_layout(ncol = 3)
+
+```
+
+\newpage
+
+# Create Data Frame: Ratings by image
+
+```{r, results = "hide"}
+
+d_image_nonip <- d %>%
+  dplyr::select(ResponseId, Culture, X1_neu_vale:X48_neu_desc) %>%
+  pivot_longer(cols = X1_neu_vale:X48_neu_desc,
+               names_to = "variable",
+               values_to = "value") %>%
+  dplyr::mutate(image_no = str_extract(variable, "(?<=^X)[0-9]+"),
+                image_type = substr(
+                  variable, nchar(variable)-7, nchar(variable)-5),
+                rating_type = substr(
+                  variable, nchar(variable)-3, nchar(variable))) %>%
+  dplyr::select(ResponseId, Culture, image_type, 
+                image_no, rating_type, value) %>%
+  pivot_wider(id_cols = c(ResponseId, Culture, image_type, image_no),
+              names_from = "rating_type",
+              values_from = "value") %>%
+  dplyr::mutate(feel = factor(feel, 
+                              levels = 1:15,
+                              labels = 
+                                c("f_Angry", "f_Disgusted", "f_Afraid", 
+                                  "f_Sad", "f_Bored", "f_Anxious", "f_Tired", 
+                                  "f_Calm", "f_Happy", "f_Excited", 
+                                  "f_Surprised", "f_Energized", 
+                                  "f_Elated", "f_Neutral", "f_NOEmotion")),
+                desc = factor(desc, 
+                              levels = 1:15,
+                              labels = 
+                                c("d_Angry", "d_Disgusted", "d_Afraid", 
+                                  "d_Sad", "d_Bored", "d_Anxious", "d_Tired", 
+                                  "d_Calm", "d_Happy", "d_Excited", 
+                                  "d_Surprised", "d_Energized", 
+                                  "d_Elated", "d_Neutral", "d_NOEmotion"))
+                ) %>%
+  dplyr::mutate(feel = as.character(feel),
+                desc = as.character(desc),
+                value = 1,
+                value2 = 1) %>%
+  pivot_wider(id_cols = c(ResponseId, Culture, image_type, image_no,
+                          vale, arou, desc, value2),
+              names_from = "feel",
+              values_from = "value",
+              values_fill = 0) %>%
+  pivot_wider(id_cols = c(ResponseId, Culture, image_type, image_no, 
+                          vale, arou,
+                          f_Angry, f_Disgusted, f_Afraid, f_Sad,
+                          f_Bored, f_Anxious, f_Tired, f_Calm,
+                          f_Happy, f_Excited, f_Surprised, f_Energized, 
+                          f_Elated, f_Neutral, f_NOEmotion),
+              names_from = "desc",
+              values_from = "value2",
+              values_fill = 0) %>%
+  dplyr::select(ResponseId:f_NOEmotion, 
+                d_Angry, d_Disgusted, d_Afraid, d_Sad,
+                d_Bored, d_Anxious, d_Tired, d_Calm,
+                d_Happy, d_Excited, d_Surprised, d_Energized, 
+                d_Elated, d_Neutral, d_NOEmotion)
+
+
+d_image_ip <- d_ip %>%
+  dplyr::select(ResponseId, Culture, X1_neu_vale:X48_neu_desc) %>%
+  pivot_longer(cols = X1_neu_vale:X48_neu_desc,
+               names_to = "variable",
+               values_to = "value") %>%
+  dplyr::mutate(
+    image_no = str_extract(variable, "(?<=^X)[0-9]+"),
+    image_type = substr(
+      variable, nchar(variable)-7, nchar(variable)-5),
+    rating_type = paste0(
+      substr(variable, nchar(variable)-3, nchar(variable)), "_ip")) %>%
+  dplyr::select(
+    ResponseId, Culture, image_type, image_no, rating_type, value) %>%
+  pivot_wider(id_cols = c(ResponseId, Culture, image_type, image_no),
+              names_from = "rating_type",
+              values_from = "value") %>%
+  dplyr::select(-c("feel_ip", "desc_ip"))
+
+d_image <- merge(d_image_nonip, d_image_ip,
+                 by = c("ResponseId", "Culture", "image_type", "image_no"))
+
+rm(d_image_nonip, d_image_ip)
+
+```
+
+```{r, results = "hide"}
+
+d_image_csv <- d_image %>% 
+  group_by(Culture, image_type, image_no) %>%
+  dplyr::mutate(
+    n = n(),
+    vale = mean(vale, na.rm = T), vale_sd = psych::SD(vale, na.rm = T),
+    arou = mean(arou, na.rm = T), arou_sd = psych::SD(arou, na.rm = T),
+    vale_ip = mean(vale_ip, na.rm = T), vale_ip_sd = psych::SD(vale_ip, na.rm = T),
+    arou_ip = mean(arou_ip, na.rm = T), arou_ip_sd = psych::SD(arou_ip, na.rm = T),
+  ) %>%
+  dplyr::mutate(
+    dplyr::across(contains("f_"), 
+                  ~ mean(.x) * n())) %>%
+  dplyr::mutate(
+    dplyr::across(contains("d_"), 
+                  ~ mean(.x) * n())) %>%
+  dplyr::select(Culture, image_type, image_no, n, 
+                vale, vale_sd, arou, arou_sd,
+                vale_ip, vale_ip_sd, arou_ip, arou_ip_sd,
+                everything(), -ResponseId) %>%
+  dplyr::distinct() %>%
+  dplyr::arrange(image_type, image_no, Culture)
+
+#write.csv(d_image_csv, "d_imagetest.csv")
+
+```
+
