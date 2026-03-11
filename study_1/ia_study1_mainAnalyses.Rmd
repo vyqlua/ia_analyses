@@ -140,6 +140,43 @@ longGivingdata_i = longGivingdata_i %>%
 longGivingdata_i = longGivingdata_i %>% dplyr::filter(!is.na(response_i))
 ```
 
+## Sample size
+
+Main analyses (!is.na(subID))
+
+```{r sample size main}
+print("n_total:"); longGivingdata_i %>%
+  dplyr::summarise(n = dplyr::n_distinct(subID)) %>% 
+  pull()
+
+print("n_tw:"); longGivingdata_i %>%
+  dplyr::filter(culture == "TN") %>%
+  dplyr::summarise(n_tw = dplyr::n_distinct(subID)) %>% 
+  pull()
+
+print("n_ea:"); longGivingdata_i %>%
+  dplyr::filter(culture == "EA") %>%
+  dplyr::summarise(n_ea = dplyr::n_distinct(subID)) %>% 
+  pull()
+```
+Supple analyses (exclude_age != 1)
+
+```{r sample size}
+print("n_total:"); longGivingdata_i %>%
+  dplyr::filter(exclude_age != 1) %>%
+  dplyr::summarise(n = dplyr::n_distinct(subID)) %>% 
+  pull()
+
+print("n_tw:"); longGivingdata_i %>%
+  dplyr::filter(exclude_age != 1, culture == "TN") %>%
+  dplyr::summarise(n_tw = dplyr::n_distinct(subID)) %>% 
+  pull()
+
+print("n_ea:"); longGivingdata_i %>%
+  dplyr::filter(exclude_age != 1, culture == "EA") %>%
+  dplyr::summarise(n_ea = dplyr::n_distinct(subID)) %>% 
+  pull()
+```
 
 \newpage
 
@@ -156,7 +193,6 @@ longGivingdata_i2 <- longGivingdata_i %>% dplyr::mutate(
                   levels = c("Neutral", "HAP", "HAN")))
 ggplot(
   longGivingdata_i2 %>% 
-    dplyr::filter(exclude_age != 1 & exclude_sd != 1) %>%
     group_by(subID, mood, faceEmotion, Culture) %>% 
     summarise(response_i = mean(response_i, na.rm = T)) %>%
     group_by(faceEmotion, mood, Culture) %>%
@@ -268,7 +304,7 @@ aov_analysis(
 pairwise <- aov(
   formula = response_i ~ mood*culture*faceEmotion + 
     Error(subID/(mood*faceEmotion)),
-  data = longGivingdata_i %>% dplyr::filter(exclude_sd != 1))
+  data = longGivingdata_i)
 ```
 
 \newpage
