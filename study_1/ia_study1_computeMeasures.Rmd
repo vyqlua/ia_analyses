@@ -420,11 +420,17 @@ data <- data %>%
 
 ```
 
-# Save data frame 
+# Save data computed frame 
 
 ```{r write csv}
 
 write.csv(data, "ia_study1_anon_data_computed.csv")
+
+```
+```{r describe}
+
+table(data$cultureEA)
+colnames(data)
 
 ```
 

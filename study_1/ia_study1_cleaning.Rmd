@@ -726,7 +726,7 @@ data <- rbind(dataEA %>% dplyr::mutate(cultureEA = 1),
                 -(Q520:Q565_Page.Submit), -Q467,
                 -contains("Click"))
 
-#write.csv(data, "ia_study1_anon_data.csv")
+write.csv(data, "ia_study1_anon_data.csv")
 
 ```
 
