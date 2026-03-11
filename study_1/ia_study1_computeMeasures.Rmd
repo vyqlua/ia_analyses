@@ -91,6 +91,8 @@ data <- read_csv("ia_study1_anon_data.csv")
 data <- data[ , -1]
 ```
 
+\newpage
+
 # Ten Item Personality Inventory (TIPI)
   
 Next, we compute the composite scores of the participant-level TIPI variables. Specifically, we calculate:
@@ -162,6 +164,8 @@ data %>% dplyr::filter(cultureEA == 0) %>%
 
 ```
 
+\newpage
+
 # Interpersonal Reativity Index (IRI)
   
 Next, we compute the composite scores of the participant-level IRI variables. Specifically, we calculate:
@@ -219,6 +223,8 @@ all_alphas(data, items = reliab_iri, constructs = reliab_iri_names,
 
 ```
   
+\newpage
+
 # AVI  - Ideal and Actual HAP & LAP
   
 Now, we compute the composite scores of the participant-level AVI variables. Specifically, we calculate:
@@ -281,6 +287,8 @@ all_alphas(data, items = reliab_avi, constructs = reliab_avi_names,
 
 ```
 
+
+\newpage
 
 # AVI - Maximizing Positivity
  
@@ -355,9 +363,11 @@ all_alphas(data, items = reliab_avimp, constructs = reliab_avi_namesmp,
 
 ```
 
+\newpage
+
 # Ipsatized giving scores  
   
-Finally, we compute the ipsatized scores of the trials. Alike the AVI variables, we calculate this by converting the amount of money given using this formula: `ipsatized score = (raw amoung given - individuals' mean amount given across all trials) / (individuals' sd across the amount of money given across all trials)`
+Now, we compute the ipsatized scores of the trials. Alike the AVI variables, we calculate this by converting the amount of money given using this formula: `ipsatized score = (raw amoung given - individuals' mean amount given across all trials) / (individuals' sd across the amount of money given across all trials)`
   
 ```{r compute ipsatized giving scores}
 
@@ -376,6 +386,8 @@ data <- data %>%
   ungroup()
 
 ```
+
+\newpage
 
 # Ipsatized trait rating scores  
   
@@ -420,6 +432,8 @@ data <- data %>%
 
 ```
 
+\newpage
+
 # Save data computed frame 
 
 ```{r write csv}
@@ -427,10 +441,55 @@ data <- data %>%
 write.csv(data, "ia_study1_anon_data_computed.csv")
 
 ```
-```{r describe}
 
-table(data$cultureEA)
-colnames(data)
+## Descriptives
+
+```{r descriptives function, message = FALSE}
+
+# descriptives function
+describe_all <- function(data, filter_condition1) {
+  for (i in 1:length(filter_condition1)) {
+      subset_data <- data %>% 
+        filter(eval(parse(text = filter_condition1[i])))
+   desc <- subset_data  %>% rowwise() %>%
+    dplyr::mutate(
+      avg_giving_amt = mean(
+        c_across((starts_with("raw") & !contains("_Page.Submit")))),
+      avg_giving_RT = mean(
+        c_across((starts_with("raw") & contains("_Page.Submit"))))) %>% 
+      dplyr::select(gender_nonfemale, sexualpref_nonhetero, ethn_nonmajority,
+                    age, famises2_numbered, selfses2_numbered, 
+                    tipi_ex, tipi_a, tipi_c, tipi_es, tipi_o,
+                    iri_pt, iri_fs, iri_ec, iri_pd,
+                    avg_giving_amt, avg_giving_RT,
+                    rHAP, rLAP, iHAP, iLAP) %>%
+     psych::describe(fast = TRUE, skew = FALSE)
+  print(filter_condition1[i])
+  print(desc)
+  }
+}
+
+```
+
+\newpage
+
+```{r describe}
+# Pooled data
+describe_all(data = data, sensitivity_analyses)
+```
+
+\newpage
+
+```{r describe EA}
+# European American
+describe_all(data = data %>% dplyr::filter(cultureEA == 1), sensitivity_analyses)
+```
+
+\newpage
+
+```{r describe TN}
+# Taiwanese
+describe_all(data = data %>% dplyr::filter(cultureEA == 0), sensitivity_analyses)
 
 ```
 
