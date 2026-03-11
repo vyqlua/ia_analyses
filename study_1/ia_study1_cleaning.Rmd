@@ -44,11 +44,6 @@ invitedTNemails_raw <-
            header = TRUE, 
            encoding = "UTF-8")
 
-# select levels breakdown data
-levelBreakdown <- 
-  read.csv('raw_data/ia_TrialsBreakdown.csv', 
-           header = TRUE)
-
 ```
 
 \newpage
