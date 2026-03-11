@@ -152,6 +152,7 @@ d <- read.csv("imageTestData.csv") %>% dplyr::select(-"X")
 # European American
 d %>% dplyr::filter(Culture == "EA") %>%
   summarize(Culture = "EA",
+            n = n(),
             M_age = mean(age, na.rm = T),
             SD_age = sd(age, na.rm = T),
             Female = sum(gender == "2", na.rm = T)/ n())
@@ -159,6 +160,7 @@ d %>% dplyr::filter(Culture == "EA") %>%
 # TN
 d %>% dplyr::filter(Culture == "TN") %>%
   summarize(Culture = "TN",
+            n = n(),
             M_age = mean(age, na.rm = T),
             SD_age = sd(age, na.rm = T),
             Female = sum(gender == "2", na.rm = T)/ n())
@@ -187,7 +189,7 @@ d <- d %>%
 ```{r plot avi, results = "hide"}
 
 plot_avi(
-  d %>% dplyr::select(Culture, rHAP:rMaxPos_ip, iHAP:iMaxPos_ip), 
+  d %>% dplyr::select(Culture, rHAP:rMaxPos_i, iHAP:iMaxPos_i), 
   "Culture")
 
 ```
