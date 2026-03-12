@@ -14,13 +14,6 @@ library(patchwork)
 source("https://raw.githubusercontent.com/vyqlua/avi_functions/refs/heads/main/ipsatize_fn.R")
 ```
 
-```{r create list for specifying arguments to filter additional exclusion criteria easily}
-sensitivity_analyses <- c("!is.na(subID)",
-  "exclude_age != 1", "exclude_sd != 1", 
-  "exclude_age != 1 & exclude_sd != 1")
-sensitivity_analyses_i <- c("!is.na(subID)", "exclude_age != 1")
-```
-
 ```{r set ggplot common theme, include = FALSE}
 
 theme_myplot <- theme_minimal(base_size = 12) +
@@ -134,39 +127,6 @@ ggplot(plot_df %>%
 
 ## Admin before analyses
 
-```{r define aov_analysis fn}
-# Define the analysis function
-
-aov_analysis <- 
-  function(formula, data, filter_condition1, filter_condition2 = NULL) 
-    {
-    # Initialize a list to store results from each iteration
-    analysis_result <- list()
-  if (is.null(filter_condition2)) {
-    for (i in 1:length(filter_condition1)) {
-      subset_data <- data %>% 
-        filter(eval(parse(text = filter_condition1[i])))
-    # Run the analysis on the subset
-    analysis_result[[filter_condition1[i]]] <- 
-      aov(formula, data = subset_data) %>% summary()
-    }}
-  else {
-    for (j in 1:length(filter_condition2)) {
-      for (i in 1:length(filter_condition1)) {
-        subset_data <- data %>% 
-          filter(eval(parse(text = filter_condition1[i]))) %>%
-          filter(eval(parse(text = filter_condition2[j])))
-    # Run the analysis on the subset
-    analysis_result[[
-      paste(filter_condition1[i], "&", filter_condition2[j])]] <- 
-      aov(formula = formula, data = subset_data) %>% summary()
-      }}
-    }
-  return(analysis_result)
-}
-
-```
-
 ```{r convert giving data to long form}
 # convert AVI data into long form
 longGivingdata_i <- data %>% 
@@ -206,9 +166,9 @@ longGivingdata_i = longGivingdata_i %>%
 longGivingdata_i = longGivingdata_i %>% dplyr::filter(!is.na(response_i))
 ```
 
-## Sample size
+\newpage
 
-Main analyses (!is.na(subID))
+## Sample size
 
 ```{r sample size main}
 print("n_total:"); longGivingdata_i %>%
@@ -222,24 +182,6 @@ print("n_tw:"); longGivingdata_i %>%
 
 print("n_ea:"); longGivingdata_i %>%
   dplyr::filter(culture == "EA") %>%
-  dplyr::summarise(n_ea = dplyr::n_distinct(subID)) %>% 
-  pull()
-```
-Supple analyses (exclude_age != 1)
-
-```{r sample size}
-print("n_total:"); longGivingdata_i %>%
-  dplyr::filter(exclude_age != 1) %>%
-  dplyr::summarise(n = dplyr::n_distinct(subID)) %>% 
-  pull()
-
-print("n_tw:"); longGivingdata_i %>%
-  dplyr::filter(exclude_age != 1, culture == "TN") %>%
-  dplyr::summarise(n_tw = dplyr::n_distinct(subID)) %>% 
-  pull()
-
-print("n_ea:"); longGivingdata_i %>%
-  dplyr::filter(exclude_age != 1, culture == "EA") %>%
   dplyr::summarise(n_ea = dplyr::n_distinct(subID)) %>% 
   pull()
 ```
@@ -354,11 +296,10 @@ p1 + p2 + p3 +
 
 ```{r main three-way analysis}
 
-aov_analysis(
+aov(
   formula = response_i ~ mood*culture*faceEmotion + 
     Error(subID/(mood*faceEmotion)),
-  data = longGivingdata_i,
-  filter_condition1 = sensitivity_analyses_i)
+  data = longGivingdata_i)
 
 ```
 
