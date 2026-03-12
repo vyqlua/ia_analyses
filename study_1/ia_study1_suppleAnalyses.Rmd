@@ -15,10 +15,7 @@ source("https://raw.githubusercontent.com/vyqlua/avi_functions/refs/heads/main/i
 ```
 
 ```{r create list for specifying arguments to filter additional exclusion criteria easily}
-sensitivity_analyses <- c("!is.na(subID)",
-  "exclude_age != 1", "exclude_sd != 1", 
-  "exclude_age != 1 & exclude_sd != 1")
-sensitivity_analyses_i <- c("!is.na(subID)", "exclude_age != 1")
+sensitivity_analyses <- c("!is.na(subID)", "exclude_sd != 1")
 ```
 
 ```{r set ggplot common theme, include = FALSE}
@@ -53,20 +50,162 @@ levelBreakdown <- read_csv("ia_TrialsBreakdown.csv")
 
 \newpage
 
-# Raw Ideal Affect: Are There Cultural Differences in Ideal Affect between European Americans and Taiwanese?
+# Supple For: Are There Cultural Differences in Ideal Affect between European Americans and Taiwanese?
+
+## Raw Ideal Affect Scores
 
 ```{r plot AVI}
+plot_avi(data, group_id = "cultureEA", ipsatized_only = FALSE)
+```
 
-#plot_avi(data, group_id = "cultureEA")
-#need to figure out what affective states to include in AVI measure
+\newpage
+
+# Supple For: Does Induced Mood Influence Giving Towards Excited, Calm, and Neutral Responders Differently Across Cultures?
+
+## Ipsatized Giving Controlling for Age
+
+### Admin before analyses
+
+```{r convert giving data to long form ip}
+# convert AVI data into long form
+longGivingdata_i <- data %>% 
+  dplyr::select(
+    subID, cultureEA, order,
+    starts_with("raw") & contains("_i"),
+    starts_with("exclude"),
+    age # covariates 
+    ) %>%
+  pivot_longer(
+    cols = `raw1_i`:`raw36_i`, 
+    names_to = "trial",
+    values_to = "response_i") %>%
+  dplyr::mutate(
+    trial = as.numeric(substr(trial, start = 4, stop = str_length(trial)-2)))
+```
+
+```{r attach trial information ip}
+# add info on incidental affect (mood), face gender, face race, and face emotion for each trial.
+longGivingdata_i = longGivingdata_i %>% 
+  dplyr::mutate(
+    mood = levelBreakdown$mood[trial],
+    faceGender = levelBreakdown$faceGender[trial], 
+    faceRace = levelBreakdown$faceRace[trial], 
+    faceEmotion = levelBreakdown$faceEmotion[trial])
+
+# make variables factors
+longGivingdata_i = longGivingdata_i %>% 
+  dplyr::mutate(
+    culture = ifelse(cultureEA == 1, "EA", "TN") %>% as.factor(),
+    mood = factor(mood, levels = c("HAP", "HAN","Neutral")),
+    faceRace = factor(faceRace, levels = c("White", "Asian")),
+    faceGender = factor(faceGender, levels = c("Male", "Female")),
+    faceEmotion = factor(faceEmotion, levels = c("Excited", "Calm", "Neutral")),
+    subID = factor(subID, unique(subID)))
+
+longGivingdata_i = longGivingdata_i %>% 
+  dplyr::filter(!is.na(response_i),
+                !is.na(age))
+```
+
+\newpage
+
+### Sample size
+
+```{r sample size main ip}
+print("n_total:"); longGivingdata_i %>%
+  dplyr::summarise(n = dplyr::n_distinct(subID)) %>% 
+  pull()
+
+print("n_tw:"); longGivingdata_i %>%
+  dplyr::filter(culture == "TN") %>%
+  dplyr::summarise(n_tw = dplyr::n_distinct(subID)) %>% 
+  pull()
+
+print("n_ea:"); longGivingdata_i %>%
+  dplyr::filter(culture == "EA") %>%
+  dplyr::summarise(n_ea = dplyr::n_distinct(subID)) %>% 
+  pull()
+```
+
+\newpage
+
+### Visualizations
+
+Same as main analyses, hence not plotted
+
+### Analyses
+
+```{r main three-way analysis}
+
+aov(
+  formula = response_i ~ mood*culture*faceEmotion + mood*age*faceEmotion +
+    Error(subID/(mood*faceEmotion)),
+  data = longGivingdata_i) %>% summary()
 
 ```
 
 \newpage
 
-# Raw Giving: Does Induced Mood Influence Giving Towards Excited, Calm, and Neutral Responders Differently Across Cultures?
+#### Pairwise
 
-## Admin before analyses
+```{r pairwise analyses}
+pairwise <- aov(
+  formula = response_i ~ mood*culture*faceEmotion + mood*age*faceEmotion +
+    Error(subID/(mood*faceEmotion)),
+  data = longGivingdata_i) 
+```
+
+Main effect mood
+```{r pairwise main effect mood}
+# main effect mood
+emm_3way_mood <- emmeans(pairwise, ~ mood) 
+pairs(emm_3way_mood) # p values
+#confint(pairs(emm_3way_mood)) # confidence intervals
+```
+
+Main effect faceEmotion
+```{r pairwise main effect faceEmotion}
+# main effect faceEmotion
+emm_3way_faceEmotion <- emmeans(pairwise, ~ faceEmotion)
+pairs(emm_3way_faceEmotion) # p values
+#confint(pairs(emm_3way_faceEmotion)) # confidence intervals
+```
+
+\newpage
+
+Culture:faceEmotion
+```{r pairwise Culture:faceEmotion}
+emm_3way_faceEmotionCulture <- emmeans(pairwise, ~ culture | faceEmotion) 
+pairs(emm_3way_faceEmotionCulture) # p values
+#confint(pairs(emm_3way_faceEmotionCulture)) # confidence intervals
+```
+
+Mood:faceEmotion
+```{r pairwise Mood:faceEmotion}
+emm_3way_faceEmotionMood <- emmeans(pairwise, ~ faceEmotion | mood) 
+pairs(emm_3way_faceEmotionMood) # p values
+#confint(pairs(emm_3way_faceEmotionMood)) # confidence intervals
+```
+
+\newpage
+
+Mood:culture:faceEmotion
+
+```{r pairwise Mood:culture:faceEmotion bymood}
+emm_3way_bymood <- emmeans(pairwise, ~ culture * faceEmotion | mood) 
+pairs(emm_3way_bymood) # p values
+#confint(pairs(emm_3way_bymood)) # confidence intervals
+```
+
+```{r pairwise Mood:culture:faceEmotion byfaceEmotion}
+emm_3way_byfaceEmotion <- emmeans(pairwise, ~ culture * mood | faceEmotion) 
+pairs(emm_3way_byfaceEmotion) # p values
+#confint(pairs(emm_3way_byfaceEmotion)) # confidence intervals
+```
+
+## Raw Giving Scores
+
+### Admin before analyses
 
 ```{r define aov_analysis fn}
 # Define the analysis function
@@ -140,9 +279,9 @@ longGivingdata = longGivingdata %>%
 longGivingdata = longGivingdata %>% dplyr::filter(!is.na(response))
 ```
 
-## Sample size
+### Sample size
 
-Main analyses (!is.na(subID))
+1. Supple analyses (!is.na(subID)) - Includes all participants
 
 ```{r sample size main}
 print("n_total:"); longGivingdata %>%
@@ -159,7 +298,8 @@ print("n_ea:"); longGivingdata %>%
   dplyr::summarise(n_ea = dplyr::n_distinct(subID)) %>% 
   pull()
 ```
-Supple analyses (exclude_sd != 1)
+
+2. Supple analyses (exclude_sd != 1) - Excludes participants who gave equally to all targets
 
 ```{r sample size exclude sd}
 print("n_total:"); longGivingdata %>%
@@ -178,49 +318,13 @@ print("n_ea:"); longGivingdata %>%
   pull()
 ```
 
-Supple analyses (exclude_age != 1)
-
-```{r sample size exclude age}
-print("n_total:"); longGivingdata %>%
-  dplyr::filter(exclude_age != 1) %>%
-  dplyr::summarise(n = dplyr::n_distinct(subID)) %>% 
-  pull()
-
-print("n_tw:"); longGivingdata %>%
-  dplyr::filter(exclude_age != 1, culture == "TN") %>%
-  dplyr::summarise(n_tw = dplyr::n_distinct(subID)) %>% 
-  pull()
-
-print("n_ea:"); longGivingdata %>%
-  dplyr::filter(exclude_age != 1, culture == "EA") %>%
-  dplyr::summarise(n_ea = dplyr::n_distinct(subID)) %>% 
-  pull()
-```
-
-Supple analyses (exclude_sd != 1 & exclude_age != 1)
-
-```{r sample size exclude age sd}
-print("n_total:"); longGivingdata %>%
-  dplyr::filter(exclude_sd != 1 & exclude_age != 1) %>%
-  dplyr::summarise(n = dplyr::n_distinct(subID)) %>% 
-  pull()
-
-print("n_tw:"); longGivingdata %>%
-  dplyr::filter(exclude_sd != 1, exclude_age != 1, culture == "TN") %>%
-  dplyr::summarise(n_tw = dplyr::n_distinct(subID)) %>% 
-  pull()
-
-print("n_ea:"); longGivingdata %>%
-  dplyr::filter(exclude_sd != 1, exclude_age != 1, culture == "EA") %>%
-  dplyr::summarise(n_ea = dplyr::n_distinct(subID)) %>% 
-  pull()
-```
-
 \newpage
 
-## Visualizations
+### Visualizations
 
-```{r plot three-way, message = FALSE, fig.width = 10, fig.height = 7}
+1. Supple analyses (!is.na(subID)) - Includes all participants
+
+```{r plot three-way (!is.na(subID)), message = FALSE, fig.width = 10, fig.height = 7}
 
 longGivingdata2 <- longGivingdata %>% dplyr::mutate(
   culture = if_else(culture == "EA", "European American", "Taiwanese")) %>%
@@ -250,9 +354,108 @@ ggplot(
 
 ```
 
-\newpage
+```{r plot two-ways (!is.na(subID)), message = FALSE, fig.width = 10, fig.height = 15}
 
-```{r plot two-ways, message = FALSE, fig.width = 10, fig.height = 15}
+p1 <- ggplot(longGivingdata2 %>%
+               group_by(subID, mood, Culture) %>% 
+               summarise(response = mean(response, na.rm = T)) %>%
+               group_by(mood, Culture) %>%
+               summarise(
+                 mean = mean(response, na.rm=T),
+                 SD = sd(response, na.rm = T),
+                 SE = sd(response, na.rm = T)/sqrt(n())), 
+             aes(mood, mean, fill = Culture)) + 
+  scale_fill_manual(values = 
+                      c("European American"="#F49070", 
+                        "Taiwanese"="#52B2CF")) +
+  geom_bar(stat='identity', position='dodge') +
+  geom_errorbar(aes(ymin = mean-SE, ymax = mean+SE), 
+                position = position_dodge(0.9), width = 0.1) +
+  xlab("Mood") +
+  ylab("Amount Given (Ipsatized)") +
+  ggtitle("Amount Given by Mood Condition") 
+
+p2 <- ggplot(longGivingdata2 %>%
+               group_by(subID, faceEmotion, Culture) %>% 
+               summarise(response = mean(response, na.rm = T)) %>%
+               group_by(faceEmotion, Culture) %>%
+               summarise(
+                 mean = mean(response, na.rm=T),
+                 SD = sd(response, na.rm = T),
+                 SE = sd(response, na.rm = T)/sqrt(n())), 
+             aes(faceEmotion, mean, fill = Culture)) + 
+  scale_fill_manual(values = 
+                      c("European American"="#F49070", 
+                        "Taiwanese"="#52B2CF")) +
+  geom_bar(stat='identity', position='dodge') +
+  geom_errorbar(aes(ymin = mean-SE, ymax = mean+SE), 
+                position = position_dodge(0.9), width = 0.1) +
+  xlab("Facial Expression") +
+  ylab("Amount Given (Ipsatized)") +
+  ggtitle("Amount Given by faceEmotion Condition") 
+
+p3 <- ggplot(longGivingdata2 %>%
+               group_by(subID, faceEmotion, mood) %>% 
+               summarise(response = mean(response, na.rm = T)) %>%
+               group_by(faceEmotion, mood) %>%
+               summarise(
+                 mean = mean(response, na.rm=T),
+                 SD = sd(response, na.rm = T),
+                 SE = sd(response, na.rm = T)/sqrt(n())), 
+             aes(mood, mean, fill = faceEmotion)) + 
+  scale_fill_manual(values = 
+                      c("Neutral"="grey", 
+                        "Excited"="lightyellow",
+                        "Calm"="lightblue")) +
+  geom_bar(stat='identity', position='dodge') +
+  geom_errorbar(aes(ymin = mean-SE, ymax = mean+SE), 
+                position = position_dodge(0.9), width = 0.1) +
+  xlab("Mood") +
+  ylab("Amount Given (Ipsatized)") +
+  ggtitle("Amount Given by faceEmotion Condition") 
+
+p1 + p2 + p3 +
+  patchwork::plot_layout(
+    ncol = 1
+  )
+
+```
+
+2. Supple analyses (exclude_sd != 1) - Excludes participants who gave equally to all targets
+
+```{r plot three-way (exclude_sd), message = FALSE, fig.width = 10, fig.height = 7}
+
+longGivingdata2a <- longGivingdata %>% 
+  dplyr::filter(exclude_sd != 1) %>%
+  dplyr::mutate(
+  culture = if_else(culture == "EA", "European American", "Taiwanese")) %>%
+  dplyr::rename(Culture = culture) %>%
+  dplyr::mutate(
+    mood = factor(mood,
+                  labels = c("Neutral", "HAP", "HAN"),
+                  levels = c("Neutral", "HAP", "HAN")))
+ggplot(
+  longGivingdata2a %>% 
+    group_by(subID, mood, faceEmotion, Culture) %>% 
+    summarise(response = mean(response, na.rm = T)) %>%
+    group_by(faceEmotion, mood, Culture) %>%
+    summarise(mean = mean(response, na.rm = T),
+              SD = sd(response, na.rm = T),
+              SE = sd(response, na.rm = T)/sqrt(n())), 
+  aes(faceEmotion, mean, fill = Culture)) + 
+  facet_grid(~mood)+
+  scale_fill_manual(
+    values = c("European American"="#F49070", "Taiwanese"="#52B2CF")) +
+  geom_bar(stat='identity', position='dodge') +
+  geom_errorbar(aes(ymin = mean-SE, ymax = mean+SE), 
+                position = position_dodge(0.9), width = 0.1)+
+  xlab("Facial Expression") +
+  ylab("Amount Given (Raw)") +
+  ggtitle("Amount Given by Mood Condition and Responder's Facial Expression") 
+
+```
+
+```{r plot two-ways (exclude_sd), message = FALSE, fig.width = 10, fig.height = 15}
 
 p1 <- ggplot(longGivingdata2 %>%
                group_by(subID, mood, Culture) %>% 
@@ -321,9 +524,9 @@ p1 + p2 + p3 +
 
 \newpage
 
-## Analyses
+### Analyses
 
-```{r main three-way analysis}
+```{r main three-way analysis raw giving}
 
 aov_analysis(
   formula = response ~ mood*culture*faceEmotion + 
@@ -331,4 +534,55 @@ aov_analysis(
   data = longGivingdata,
   filter_condition1 = sensitivity_analyses)
 
+```
+
+\newpage
+
+#### Pairwise (Raw Giving, !is.na(subID))
+
+```{r pairwise analyses (Raw Giving, !is.na(subID))}
+pairwise <- aov(
+  formula = response ~ mood*culture*faceEmotion + 
+    Error(subID/(mood*faceEmotion)),
+  data = longGivingdata)
+```
+
+Mood:culture:faceEmotion
+
+```{r pairwise Mood:culture:faceEmotion bymood (Raw Giving, !is.na(subID))}
+emm_3way_bymood <- emmeans(pairwise, ~ culture * faceEmotion | mood) 
+pairs(emm_3way_bymood) # p values
+#confint(pairs(emm_3way_bymood)) # confidence intervals
+```
+
+```{r pairwise Mood:culture:faceEmotion byfaceEmotion (Raw Giving, !is.na(subID))}
+emm_3way_byfaceEmotion <- emmeans(pairwise, ~ culture * mood | faceEmotion) 
+pairs(emm_3way_byfaceEmotion) # p values
+#confint(pairs(emm_3way_byfaceEmotion)) # confidence intervals
+```
+
+\newpage
+
+#### Pairwise (Raw Giving, exclude_sd != 1)
+
+```{r pairwise analyses (Raw Giving, exclude_sd}
+pairwise <- aov(
+  formula = response ~ mood*culture*faceEmotion + 
+    Error(subID/(mood*faceEmotion)),
+  data = longGivingdata %>% 
+    dplyr::filter(exclude_sd != 1))
+```
+
+Mood:culture:faceEmotion
+
+```{r pairwise Mood:culture:faceEmotion bymood (Raw Giving, exclude_sd}
+emm_3way_bymood <- emmeans(pairwise, ~ culture * faceEmotion | mood) 
+pairs(emm_3way_bymood) # p values
+#confint(pairs(emm_3way_bymood)) # confidence intervals
+```
+
+```{r pairwise Mood:culture:faceEmotion byfaceEmotion (Raw Giving, exclude_sd)}
+emm_3way_byfaceEmotion <- emmeans(pairwise, ~ culture * mood | faceEmotion) 
+pairs(emm_3way_byfaceEmotion) # p values
+#confint(pairs(emm_3way_byfaceEmotion)) # confidence intervals
 ```
