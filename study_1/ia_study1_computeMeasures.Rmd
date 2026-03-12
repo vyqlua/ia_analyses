@@ -284,7 +284,7 @@ names(data) <- names(data) |>
 # actual affect
 data <- ipsatize_avi(data, 
                      item_stem = "r.",
-                     remove =  c("euph", "contemptuous"), 
+                     remove = c("euphoric", "contemptuous", "angry"), 
                      maximizing_pos = TRUE)
 glimpse(avi_codebook)
 
@@ -295,7 +295,7 @@ glimpse(avi_codebook)
 # actual affect
 data <- ipsatize_avi(data, 
                      item_stem = "i.",
-                     remove = c("euph", "contemptuous"),
+                     remove = c("euphoric", "contemptuous", "angry"),
                      maximizing_pos = TRUE)
 glimpse(avi_codebook)
 
