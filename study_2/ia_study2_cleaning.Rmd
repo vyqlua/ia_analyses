@@ -1,0 +1,649 @@
+---
+title: "ia_study2_cleaning"
+author: " "
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    latex_engine: xelatex
+---
+
+```{r setup, message = FALSE}
+#setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+library(tidyverse)
+library(insight)
+```
+
+# Load raw data files
+
+```{r load raw data files}
+
+# select raw EA data csv
+dataEA_raw <- 
+  read.csv('raw_data/iaRawEA_final.csv', header = TRUE) %>% 
+  dplyr::select(
+    -IPAddress, -LocationLatitude, -LocationLongitude) %>%
+  dplyr::filter(
+    Status != "Survey Preview")
+
+# select list of verified EA participants
+invitedEAemails_raw <- 
+  read.csv('raw_data/qualifyingEAparticipants.csv', header = TRUE)
+
+# select raw TN data csv
+dataTN_raw <- 
+  read.csv('raw_data/iaRawTN_final.csv', header = TRUE, encoding = "UTF-8") %>% 
+  dplyr::select(
+    -IPAddress, -LocationLatitude, -LocationLongitude) %>%
+  dplyr::filter(
+    Status != "Survey Preview")
+
+# select list of verified TN participants
+invitedTNemails_raw <- 
+  read.csv('raw_data/qualifyingTNparticipants.csv', header = TRUE, encoding = "UTF-8")
+
+# select levels breakdown data
+levelBreakdown <- 
+  read.csv('raw_data/ia_TrialsBreakdown2.csv', header = TRUE)
+
+```
+
+\newpage
+
+# Clean email list of participants  
+  
+`invitedEAemails_raw` and `invitedTNemails_raw` provide lists of emails of participants with verifiable responses. Specifically, responses from these emails were be able to be matched to real life participants. The email lists, however, need cleaning as some emails in the list have trailing/ leading white spaces.
+  
+
+```{r clean list of email data files,}
+
+# clean EA email list 
+invitedEAemails <- array(trim_ws(str_to_lower(invitedEAemails_raw$email)))
+
+# clean TN email list 
+invitedTNemails <- array(trim_ws(str_to_lower(invitedTNemails_raw$email)))
+
+```
+
+
+# Clean main data files
+  
+`iaRawEA_final.csv` and `iaRawTN_final.csv` are unedited Qualtrics csv datafiles retrieved from the server. `dataEA` and `dataTN` are datafiles edited from the aforementioned raw datafiles in R. 
+
+## Renaming variables
+
+Firstly, the files were edited to ensure that the variable names matched across the two datafiles (for merging of datafiles later on).  
+  
+```{r examine main data files inconsistencies, include = FALSE}
+
+# row names in dataEA_raw that are not in dataTN_raw
+setdiff(names(dataEA_raw), names(dataTN_raw))
+
+# row names in dataTN_raw that are not in dataEA_raw
+setdiff(names(dataTN_raw), names(dataEA_raw))
+
+```
+
+```{r clean main data files}
+
+# clean EA data variable names
+dataEA <- dataEA_raw[-c(1:2),] %>%  
+  # remove first two rows (qualtrics info)
+  dplyr::select(-Q792) %>% 
+  # quesion on what device was not present in TN data
+  dplyr::mutate(Q519 = trim_ws(str_to_lower(Q519))) 
+# clean email formatting
+
+# clean TN data variable names
+dataTN <- dataTN_raw[-c(1:2),] %>% 
+  # remove first two rows (qualtrics info)
+  dplyr::rename(
+    famises2 = selfses2, 
+    # rename 'selfses2' to 'famises2'; question was mislabeled in qualtrics
+    selfses2 = Q712) %>% 
+  # rename 'Q712' to 'selfses2'; question  was mislabeled in qualtrics
+  dplyr::mutate(Q519 = trim_ws(str_to_lower(Q519))) 
+# clean email formatting
+
+```
+  
+Now let's ensure there are no inconsistent variable naming in the datafiles.  
+  
+```{r ensure no inconsistencies in main data files}
+
+# variable names in dataEA_raw that are not in dataTN_raw
+setdiff(names(dataEA), names(dataTN))
+
+# variable names in dataTN_raw that are not in dataEA_raw
+setdiff(names(dataTN), names(dataEA))
+
+```
+
+\newpage
+
+## Cleaning responses
+  
+Moving on, the responses also need to be cleaned to ensure they are (1) comparable across both datasets, and that (2) variables are of the correct class (e.g., numeric variables are correctly identified as numeric) so that it is earlier for data analysis later on.  
+  
+First, to make the responses comparable across datasets, we modified the `dataTN` datafile by:  
+  
+1. converting NT$ to USD$ in the responses to the amount of money given to target (1US$ = 30NT$; columns `raw1` to `raw48`)    
+2. translating responses to the `vale` (Valence) questions to English
+3. translating responses to the demographics questions from Chinese to English (columns `age`, to `didbefore`)
+
+```{r clean and translate dataTN responses}
+
+# clean and translate dataTN responses to match dataEA responses
+dataTN <- dataTN %>% 
+  dplyr::mutate(
+    across(starts_with("raw") & !contains("_"), # mutate across raw1 to raw48
+                       ~ case_when(
+                          .x == "NT$0"   ~ "$0",
+                          .x == "NT$30"  ~ "$1",
+                          .x == "NT$60"  ~ "$2",
+                          .x == "NT$90"  ~ "$3",
+                          .x == "NT$120" ~ "$4",
+                          .x == "NT$150" ~ "$5",
+                          .x == "NT$180" ~ "$6",
+                          TRUE ~ NA_character_)),
+    across(starts_with("vale"), # translate `vale` columns
+                       ~ case_when(
+                           str_detect(.x, "非常負面")  ~ "Extremely negative",
+                           str_detect(.x, "很負面")  ~ "Verynegative",
+                           str_detect(.x, "有點負面")  ~ "Somewhatnegative",
+                           str_detect(.x, "無感")  ~ "Neutral",
+                           str_detect(.x, "有點正面")  ~ "Somewhatpositive",
+                           str_detect(.x, "很正面")  ~ "Verypositive",
+                           str_detect(.x, "非常正面")  ~ "Extremely positive",
+                           TRUE ~ NA_character_)),
+    age = substr(trimws(age), start = 1, stop = 2), # rm Chinese characters 
+    gender = case_when( # translate gender responses
+      str_detect(gender, "女")  ~ "Female",
+      str_detect(gender, "男")  ~ "Male",
+      gender_3_TEXT != "" ~ "Other (please specify)",
+      TRUE ~ NA_character_),
+    sexualpref = case_when( # translate sexual preferences
+      str_detect(sexualpref, "異性戀")  ~ "Heterosexual",
+      str_detect(sexualpref, "同性戀")  ~ "Homosexual",
+      str_detect(sexualpref, "雙性戀")  ~ "Bisexual",
+      str_detect(sexualpref, "其他")  ~ "Other (please specify)",
+      TRUE ~ NA_character_),
+    across(starts_with("born") & !contains("_txt"), # translate birth demogs
+                       ~ case_when(
+                           str_detect(.x, "是")  ~ "Yes",
+                           str_detect(.x, "否")  ~ "No",
+                           TRUE ~ NA_character_)),
+    across(starts_with("raise") & !contains("_txt"), # translate raise demogs
+                       ~ case_when(
+                           str_detect(.x, "是")  ~ "Yes",
+                           str_detect(.x, "否")  ~ "No",
+                           TRUE ~ NA_character_)),
+    across(starts_with("ethni") & !contains("_txt"), # translate ethni demogs
+                       ~ case_when(
+                           str_detect(.x, "是")  ~ "Yes",
+                           str_detect(.x, "否")  ~ "No",
+                           TRUE ~ NA_character_)),
+    across(starts_with("econ") & !contains("2"), # translate econ demogs
+                       ~ case_when(
+                           str_detect(.x, "是")  ~ "Yes",
+                           str_detect(.x, "否")  ~ "No",
+                           TRUE ~ NA_character_)),
+    econ2 = case_when( # translate econ2
+      str_detect(econ2, "雙主修")  ~ "Double Major",
+      str_detect(econ2, "主修")  ~ "Major",
+      str_detect(econ2, "輔系")  ~ "Secondary major",
+      str_detect(econ2, "副修")  ~ "Minor",
+      str_detect(
+        econ2, "有上過經濟學課")  ~ "Have taken some classes in Economics",
+      str_detect(econ2, "其他")  ~ "Other (please specify)",
+      TRUE ~ NA_character_),
+    across(contains("ses1"), # translate ses class demographics
+           ~ case_when(
+             str_detect(.x, "不知道")  ~ "I don'tknow",
+             str_detect(.x, "低收入戶")  ~ "Lowerincome",
+             str_detect(.x, "中低收入戶")  ~ "Lower-Middleincome",
+             str_detect(.x, "中收入戶")  ~ "Middleincome",
+             str_detect(.x, "中高收入戶")  ~ "Upper-Middleincome",
+             str_detect(.x, "高收入戶")  ~ "Upperincome",
+             TRUE ~ NA_character_)),
+    didbefore = case_when( # translate `didbefore`
+      str_detect(didbefore, "是")  ~ "Yes",
+      str_detect(didbefore, "否")  ~ "No",
+      TRUE ~ NA_character_))
+
+```
+
+Second, there are some variables that have been named wrongly (across both datasets), and we will rename them to make them more intuitive. Specifically, we will:
+1. rename `trait10_1.1` to `trait10_7.1` as `trait13_1` to `trait13_7`
+2. rename `trait11_1.1` to `trait11_7.1` as `trait14_1` to `trait14_7`
+3. rename `trait12_1.1` to `trait12_7.1` as `trait15_1` to `trait15_7`
+4. rename `trait10_1.2` to `trait10_7.2` as `trait16_1` to `trait16_7`
+5. rename `trait11_1.2` to `trait11_7.2` as `trait17_1` to `trait17_7`
+6. rename `trait12_1.2` to `trait12_7.2` as `trait18_1` to `trait18_7`
+7. rename `trait12_1.3` to `trait12_7.3` as `trait19_1` to `trait19_7`
+8. rename `trait12_1.4` to `trait12_7.4` as `trait20_1` to `trait20_7`
+9. rename `trait12_1.5` to `trait12_7.5` as `trait21_1` to `trait21_7`
+10. rename `trait12_1.6` to `trait12_7.6` as `trait22_1` to `trait22_7`
+11. rename `trait12_1.7` to `trait12_7.7` as `trait23_1` to `trait23_7`
+12. rename `trait12_1.8` to `trait12_7.8` as `trait24_1` to `trait24_7`
+  
+```{r clean trait rating variable names}
+
+# function to rename variables in dataEA and dataTN
+rename_trait <- function(data) {
+  data %>% 
+    rename_with(
+      .fn = ~str_replace(., "^trait10_([1-7])\\.1$", "trait13_\\1"),
+      .cols = matches("^trait10_[1-7]\\.1$")) %>% 
+    rename_with(
+      .fn = ~str_replace(., "^trait11_([1-7])\\.1$", "trait14_\\1"),
+      .cols = matches("^trait11_[1-7]\\.1$"))%>% 
+    rename_with(
+      .fn = ~str_replace(., "^trait12_([1-7])\\.1$", "trait15_\\1"),
+      .cols = matches("^trait12_[1-7]\\.1$"))%>% 
+    rename_with(
+      .fn = ~str_replace(., "^trait10_([1-7])\\.2$", "trait16_\\1"),
+      .cols = matches("^trait10_[1-7]\\.2$"))%>% 
+    rename_with(
+      .fn = ~str_replace(., "^trait11_([1-7])\\.2$", "trait17_\\1"),
+      .cols = matches("^trait11_[1-7]\\.2$"))%>% 
+    rename_with(
+      .fn = ~str_replace(., "^trait12_([1-7])\\.2$", "trait18_\\1"),
+      .cols = matches("^trait12_[1-7]\\.2$"))%>% 
+    rename_with(
+      .fn = ~str_replace(., "^trait12_([1-7])\\.3$", "trait19_\\1"),
+      .cols = matches("^trait12_[1-7]\\.3$"))%>% 
+    rename_with(
+      .fn = ~str_replace(., "^trait12_([1-7])\\.4$", "trait20_\\1"),
+      .cols = matches("^trait12_[1-7]\\.4$"))%>% 
+    rename_with(
+      .fn = ~str_replace(., "^trait12_([1-7])\\.5$", "trait21_\\1"),
+      .cols = matches("^trait12_[1-7]\\.5$"))%>% 
+    rename_with(
+      .fn = ~str_replace(., "^trait12_([1-7])\\.6$", "trait22_\\1"),
+      .cols = matches("^trait12_[1-7]\\.6$"))%>% 
+    rename_with(
+      .fn = ~str_replace(., "^trait12_([1-7])\\.7$", "trait23_\\1"),
+      .cols = matches("^trait12_[1-7]\\.7$"))%>% 
+    rename_with(
+      .fn = ~str_replace(., "^trait12_([1-7])\\.8$", "trait24_\\1"),
+      .cols = matches("^trait12_[1-7]\\.8$"))
+  }
+
+#  rename variables in dataEA and dataTN
+dataEA <- rename_trait(dataEA)
+dataTN <- rename_trait(dataTN)
+
+```
+
+These trait ratings also do not reflect the trait that is being rated. To make it more intuitive to understand, we will rename the variables to add the trait rated in the variable name. Speifically, all trait variable ratings ending with the same number (e.g., "`_1`") refer to the same trait being rated. Participants rated the faces on 7 traits:
+1. 'Competent_i'  
+2. 'Trustworthy'  
+3. 'Financially needy'  
+4. 'Dominant'  
+5. 'Selfish'  
+6. 'Friendly'  
+7. 'A good person'  
+  
+So, we will rename the variables to replace the number with the trait (e.g., "`_1`" will be renamed to say "`_Competent_i`")
+
+```{r label trait rating variable names}
+
+# function to rename variables in dataEA and dataTN
+rename_trait2 <- function(data) {
+  data %>% 
+    rename_with(
+      .fn = ~str_replace(., "(^trait[1-9][0-9]*)\\_1", "\\1_Competent"),
+      .cols = matches("(^trait[1-9][0-9]*)\\_1")) %>%
+    rename_with(
+      .fn = ~str_replace(., "(^trait[1-9][0-9]*)\\_2", "\\1_Trustworthy"),
+      .cols = matches("(^trait[1-9][0-9]*)\\_2")) %>%
+    rename_with(
+      .fn = ~str_replace(., "(^trait[1-9][0-9]*)\\_3", "\\1_FinanciallyNeedy"),
+      .cols = matches("(^trait[1-9][0-9]*)\\_3")) %>%
+    rename_with(
+      .fn = ~str_replace(., "(^trait[1-9][0-9]*)\\_4", "\\1_Dominant"),
+      .cols = matches("(^trait[1-9][0-9]*)\\_4")) %>%
+    rename_with(
+      .fn = ~str_replace(., "(^trait[1-9][0-9]*)\\_5", "\\1_Selfish"),
+      .cols = matches("(^trait[1-9][0-9]*)\\_5")) %>%
+    rename_with(
+      .fn = ~str_replace(., "(^trait[1-9][0-9]*)\\_6", "\\1_Friendly"),
+      .cols = matches("(^trait[1-9][0-9]*)\\_6")) %>%
+    rename_with(
+      .fn = ~str_replace(., "(^trait[1-9][0-9]*)\\_7", "\\1_aGoodPerson"),
+      .cols = matches("(^trait[1-9][0-9]*)\\_7"))
+  }
+
+#  rename variables in dataEA and dataTN
+dataEA <- rename_trait2(dataEA)
+dataTN <- rename_trait2(dataTN)
+
+```
+
+\newpage
+
+Finally, there are responses that should be numeric which are not registered in R as numeric because of the presence of letters or special symbols. We will now clean those responses by:  
+  
+1. removing the "$" in responses to the amount of money given to target (columns `raw1` to `raw48`)  
+2. extracting only the numeric response (i.e., the first character) for all columns starting with `arou`, `trait`, and `ladder`  
+3. extracting only the numeric response (i.e., the last character) for all columns starting with `r[1-4]`, `i[1-4]`, `value_`, `iri`, and `tipi`  
+4. converting `vale` ratings to numeric (whereby 1 = *Extremely negative*, 2 = *Very negative*, 3 = *Somewhat negative*, 4 = *Neutral*, 5 = *Somewhat positive*, 6 = *Very positive*, 7 = *Extremely positive*)  
+5. creating ordinal ses variables (from `famises2` and `selfses2` to `famises2_numbered` and `selfses2_numbered`)
+5. converting all other variables of interest that are already solely numbers into numeric values (i.e., `raw[X]_rt_Page.Submit` and `age`)  
+6. Creating dummy-coded categorical variables for `gender` (*female* = 0), `sexualpref` (*heterosexual* = 0), majority ethnicity as in `Q509` (*majority ethnicity* = 0).  
+  
+
+```{r clean main data file responses}
+
+# function to clean responses in dataEA and dataTN
+clean_responses <- function(data) {
+  data %>% dplyr::mutate(
+    across(starts_with("raw") & !contains("_"), 
+           # mutate across raw1 to raw48
+           ~ as.numeric(substring(.x, str_length(.x)))),
+    across(starts_with("arou") | 
+             # mutate across columns starting with `arou`
+             starts_with("trait") | 
+             # mutate across columns starting with `trait`
+             starts_with("ladder"), 
+           # mutate across columns starting with `ladder`
+           ~ as.numeric(substr(.x, start = 1, stop = 1))),
+    across(matches("^r[1-4]_[1-9][0]*$") | 
+             # mutate across columns starting with `r[1-4]`
+             matches("^i[1-4]_[1-9][0]*$") | 
+             # mutate across columns starting with `i[1-4]`
+             starts_with("value_") | 
+             # mutate across columns starting with `value_`
+             starts_with("iri") | 
+             # mutate across columns starting with `iri`
+             starts_with("tipi"), 
+           # mutate across columns starting with `tipi`
+           ~ as.numeric(substring(.x, str_length(.x)))),
+     across(starts_with("vale"), 
+            # mutate across vale1 to vale18
+           ~ case_when(
+             str_detect(.x, "Extremely") & str_detect(.x, "negative") ~ 1,
+             str_detect(.x, "Very") & str_detect(.x, "negative") ~ 2,
+             str_detect(.x, "Somewhat") & str_detect(.x, "negative") ~ 3,
+             str_detect(.x, "Neutral") ~ 4,
+             str_detect(.x, "Somewhat") & str_detect(.x, "positive") ~ 5,
+             str_detect(.x, "Very") & str_detect(.x, "positive") ~ 6,
+             str_detect(.x, "Extremely") & str_detect(.x, "positive") ~ 7,
+             TRUE ~ NA_real_)),
+    famises2_numbered = case_when(
+      str_detect(famises2, "less than") | str_detect(famises2, "少於") ~ 1,
+      str_detect(famises2, "10,001") | str_detect(famises2, "300,001") ~ 2,
+      str_detect(famises2, "20,001") | str_detect(famises2, "600,001") ~ 3,
+      str_detect(famises2, "30,001") | str_detect(famises2, "900,001")~ 4,
+      str_detect(famises2, "40,001") | str_detect(famises2, "1,200,001") ~ 5,
+      str_detect(famises2, "50,001") | str_detect(famises2, "1,500,001") ~ 6,
+      str_detect(famises2, "75,001") | str_detect(famises2, "2,250,001") ~ 7,
+      str_detect(famises2, "over") | str_detect(famises2, "超過") ~ 8),
+    selfses2_numbered = case_when(
+      str_detect(selfses2, "less than") | str_detect(selfses2, "少於") ~ 1,
+      str_detect(selfses2, "10,001") | str_detect(selfses2, "300,001") ~ 2,
+      str_detect(selfses2, "20,001") | str_detect(selfses2, "600,001") ~ 3,
+      str_detect(selfses2, "30,001") | str_detect(selfses2, "900,001")~ 4,
+      str_detect(selfses2, "40,001") | str_detect(selfses2, "1,200,001") ~ 5,
+      str_detect(selfses2, "50,001") | str_detect(selfses2, "1,500,001") ~ 6,
+      str_detect(selfses2, "75,001") | str_detect(selfses2, "2,250,001") ~ 7,
+      str_detect(selfses2, "over") | str_detect(selfses2, "超過") ~ 8),
+    across(starts_with("raw") & ends_with("Page.Submit") | 
+             # mutate across vale1 to vale18
+             starts_with("age"), # mutate age
+           ~ as.numeric(trimws(.x))),
+    gender_nonfemale = if_else(gender == "Female", 0, 1), 
+    # dummy code gender
+    sexualpref_nonhetero = if_else(sexualpref == "Heterosexual", 0, 1), 
+    # dummy code sexual preference
+    ethn_nonmajority = if_else(
+      str_detect(Q509, "Caucasian") | 
+        str_detect(Q509, "東亞/東亞裔台灣人"), 0, 1) 
+    # dummy code ethnicity
+    )
+  }
+
+# clean responses in dataEA and dataTN
+dataEA <- clean_responses(dataEA)
+dataTN <- clean_responses(dataTN)
+
+```
+
+
+`dataEA` datafile before excluding any participants thus has `r nrow(dataEA)` submitted responses.  
+`dataTN` datafile before excluding any participants thus has `r nrow(dataTN)` submitted responses.  
+
+\newpage
+
+
+# Filtering participants
+  
+## Exclusion criteria: completeness, verifiable responses, no var in giving
+  
+Now we'll filter out participants from analyses. 
+  
+1. exclude incomplete survey responses (i.e., `finished = FALSE`);  
+  
+* `r sum(dataEA$Finished == "False")` removed from `dataEA`; `r sum(dataEA$Finished == "True")` left.  
+* `r sum(dataTN$Finished == "False")` removed from `dataTN`; `r sum(dataTN$Finished == "True")` left.    
+  
+```{r filter incomplete responses}
+
+# filter out responses that are incomplete in dataEA
+dataEA <- dataEA %>% dplyr::filter(
+  Finished == "True")
+
+# filter out responses that are incomplete in dataTN
+dataTN <- dataTN %>% dplyr::filter(
+  Finished == "True")
+
+```
+
+2. exclude responses from participants who were not invited by email 
+(thus not verifiable responses):  
+  
+* `r nrow(subset(dataEA, !(Q519 %in% invitedEAemails)))` removed from `dataEA`; `r nrow(subset(dataEA, Q519 %in% invitedEAemails))` left.  
+* `r nrow(subset(dataTN, !(Q519 %in% invitedTNemails)))` removed from `dataTN`; `r nrow(subset(dataTN, Q519 %in% invitedTNemails))` left.  
+  
+```{r filter unverifiable participants}
+
+# filter out responses from emails that did not do screener
+dataEA <- subset(dataEA, (trim_ws(str_to_lower(Q519)) %in% invitedEAemails))
+
+# filter out responses from emails that did not do screener
+dataTN <- subset(dataTN, (trim_ws(str_to_lower(Q519)) %in% invitedTNemails))
+
+```
+
+Now, the main datasets are largely ready to be merged for analysis. 
+
+\newpage
+
+## Additional exclusion criteria for sensitivity analyses (age and equal giving)
+
+There were other exclusion criteria that were applied that may or may not be 
+relevant to the quality of the study.
+
+### T-tests for age & gender
+
+```{r df for ttest age and gender}
+agegender_data = rbind(
+  dataEA %>% dplyr::select("Q509", "age", "gender"),
+  dataTN %>% dplyr::select("Q509", "age", "gender")) %>%
+  dplyr::mutate(
+    EA = as.factor((if_else(
+      Q509 == "White/Caucasian/European American", 1, 0))),
+    gender = if_else(gender == "Female", 1, 0))
+```
+
+
+```{r ttest for age}
+# age 
+  car::leveneTest(agegender_data$age, agegender_data$EA) 
+  tt1 <- 
+    t.test(
+      formula = age ~ EA,
+      data = agegender_data,
+      var.equal = FALSE); tt1
+
+  psych::describeBy(agegender_data$age, agegender_data$EA)
+  psych::describe(agegender_data$age)
+```
+
+
+```{r ttest for gender}
+# gender
+car::leveneTest(agegender_data$gender, agegender_data$EA) 
+t.test(
+  formula = gender ~ EA,
+  data = agegender_data,
+  var.equal = TRUE)
+
+  psych::describeBy(agegender_data$gender, agegender_data$EA)
+  psych::describe(agegender_data$gender)
+```
+
+
+```{clean env, include = FALSE}
+rm(agegender_data,agegender_data2, tt1, tt2)
+```
+
+\newpage
+
+### Sensitivity analyses variables
+
+1. create variable to exclude participants who are above 30 years of age or who do not specify their age:  
+  
+* `r nrow(dataEA %>% dplyr::filter(age >30.1 | is.na(age)))` participants from `dataEA` are above 30/ did not specify their age.  
+* `r nrow(dataTN %>% dplyr::filter(age >30.1 | is.na(age)))` participants from `dataTN` are above 30/ did not specify their age. 
+
+```{r filter age at most 30 for sensitivity}
+
+# filter out respondents above 30 years of age in dataEA
+dataEA <- dataEA %>% 
+  dplyr::mutate(
+    exclude_age = if_else(age > 30.1 | is.na(age), 1, 0))
+
+# filter out respondents above 30 years of age in dataTN
+dataTN <- dataTN %>% 
+  dplyr::mutate(
+    exclude_age = if_else(age > 30.1 | is.na(age), 1, 0))
+
+```
+
+2. create variable to exclude participants who give equal amounts of money to everyone :  
+  
+* `r apply(dataEA[, grep("raw[0-9]+[0-9]*$", colnames(dataEA))], 1, function(x) length(unique(x)) == 1) %>% sum()` participants from `dataEA` gave equal amounts of money to everyone 
+* `r apply(dataTN[, grep("raw[0-9]+[0-9]*$", colnames(dataTN))], 1, function(x) length(unique(x)) == 1) %>% sum()` participants from `dataTN` gave equal amounts of money to everyone  
+  
+  
+```{r giving sd equal to zero descriptives}
+
+# descriptives of respondents that gave equal amount of money in dataEA
+dataEA %>% 
+  dplyr::filter(
+    apply(
+      dataEA[, grep("raw[0-9]+[0-9]*$", colnames(dataEA))], 
+      1, function(x) length(unique(x)) == 1)) %>%
+  dplyr::select(
+    raw1, age, gender_nonfemale, sexualpref_nonhetero, ethn_nonmajority) %>% 
+  psych::describe()
+
+table(dataEA %>% 
+  dplyr::filter(
+    apply(
+      dataEA[, grep("raw[0-9]+[0-9]*$", colnames(dataEA))], 
+      1, function(x) length(unique(x)) == 1)) %>%
+  dplyr::select(raw1))
+
+# descriptives of respondents that gave equal amount of money in dataTN
+dataTN %>% 
+  dplyr::filter(
+    apply(
+      dataTN[, grep("raw[0-9]+[0-9]*$", colnames(dataEA))], 
+      1, function(x) length(unique(x)) == 1)) %>%
+  dplyr::select(
+    raw1, age, gender_nonfemale, sexualpref_nonhetero, ethn_nonmajority) %>% 
+  psych::describe()
+
+table(dataTN %>% 
+  dplyr::filter(
+    apply(
+      dataTN[, grep("raw[0-9]+[0-9]*$", colnames(dataTN))], 
+      1, function(x) length(unique(x)) == 1)) %>%
+  dplyr::select(raw1))
+
+
+```
+
+```{r giving sd equal to zero for sensitivity}
+
+# create variable to filter out respondents that gave equal amount of 
+# money in dataEA
+
+dataEA <- dataEA %>% 
+  rowwise() %>%
+  dplyr::mutate(
+    exclude_sd = if_else(
+      all(c_across(starts_with("raw") & !contains("_")) == raw1), 1, 0)) %>%
+  ungroup()
+
+# create variable to filter out respondents that gave equal amount of 
+# money in dataTN
+
+dataTN <- dataTN %>% 
+  rowwise() %>%
+  dplyr::mutate(
+    exclude_sd = if_else(
+      all(c_across(starts_with("raw") & !contains("_")) == raw1), 1, 0)) %>%
+  ungroup()
+
+```
+
+```{r exclusion criteria table, echo = FALSE}
+
+# dataEA
+print("dataEA")
+dataEA %>% dplyr::select(starts_with("exclude")) %>% table()
+
+# dataTN
+print("dataTN")
+dataTN %>% dplyr::select(starts_with("exclude")) %>% table()
+
+```
+  
+```{r create list for specifying arguments to filter additional exclusion criteria easily, include = FALSE}
+
+sensitivity_analyses <- c("!is.na(subID)",
+  "exclude_age != 1", "exclude_sd != 1", 
+  "exclude_age != 1 & exclude_sd != 1")
+
+sensitivity_analyses_i <- c("!is.na(subID)", "exclude_age != 1")
+```
+  
+\newpage
+
+# Anonymized Datafile
+
+```{r bind datafile for analysis}
+
+data <- rbind(dataEA %>% dplyr::mutate(cultureEA = 1),
+              dataTN %>% dplyr::mutate(cultureEA = 0)) %>%
+  dplyr::rename(subID = ResponseId) %>%
+  dplyr::select(subID, cultureEA, everything(),
+                -(StartDate:RecordedDate), 
+                -(Q520:Q519),
+                -contains("Click"))
+
+write.csv(data, "ia_study2_anon_data.csv")
+
+```
+
+```{r describe}
+
+table(data$cultureEA)
+colnames(data)
+
+```
+
+  
