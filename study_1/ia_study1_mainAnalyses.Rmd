@@ -55,10 +55,47 @@ levelBreakdown <- read_csv("ia_TrialsBreakdown.csv")
 
 # Are There Cultural Differences in Ideal Affect between European Americans and Taiwanese?
 
-```{r plot AVI}
+## Visualization
 
-#plot_avi(data, group_id = "cultureEA")
-#need to figure out what affective states to include in AVI measure
+```{r plot AVI}
+plot_avi(data, group_id = "cultureEA")
+```
+
+## Analyses
+
+```{r avi long data}
+# convert AVI data into long form
+longavidata <- data %>% 
+  dplyr::select(
+    subID, cultureEA, starts_with("exclude"), 
+    iHAP, iHAP_i, iLAP, iLAP_i, 
+    rHAP, rHAP_i, rLAP, rLAP_i) %>%
+  pivot_longer(
+    cols = `iHAP`:`iLAP_i`, 
+    names_to = "IdealAffect",
+    values_to = "value")
+```
+
+
+```{r avi analysis}
+# test if cultures differ on ideal affect (ipsatized scores)
+idealAffectresult_i <-
+  aov(value ~ IdealAffect*cultureEA + rHAP + rLAP + Error(subID/IdealAffect), 
+    data = longavidata %>% 
+      dplyr::filter(IdealAffect == "iHAP_i" | 
+                      IdealAffect == "iLAP_i"))
+summary(idealAffectresult_i)
+
+# pairwise tests (ipsatized scores)
+idealHAPresult_i <- 
+  lm(value ~ cultureEA + rHAP, 
+     data = longavidata %>% dplyr::filter(IdealAffect == "iHAP_i"))
+summary(idealHAPresult_i)
+
+idealLAPresult_i <-
+  lm(value ~ cultureEA + rLAP, 
+     data = longavidata %>% dplyr::filter(IdealAffect == "iLAP_i"))
+summary(idealLAPresult_i)
 
 ```
 
