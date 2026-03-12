@@ -519,16 +519,11 @@ rm(dataEA_ethn, dataTN_ethn)
 
 ## Additional exclusion criteria for sensitivity analyses (age and equal giving)
 
-There were other exclusion criteria that were applied that may or may not be 
-relevant to the quality of the study.
+There were other exclusion criteria that were applied that may or may not be relevant to the quality of the study.
 
-1. create variable to exclude participants who are above 30 years of age or who do not specify their age:  
-  
-* `r nrow(dataEA %>% dplyr::filter(age >30.1 | is.na(age)))` participants from `dataEA` are above 30/ did not specify their age.  
-* `r nrow(dataTN %>% dplyr::filter(age >30.1 | is.na(age)))` participants from `dataTN` are above 30/ did not specify their age. 
+### T-tests for age & gender
 
-```{r ttest for age and gender}
-
+```{r df for ttest age and gender}
 agegender_data = rbind(
   dataEA %>% dplyr::select("Q509", "age", "gender"),
   dataTN %>% dplyr::select("Q509", "age", "gender")) %>%
@@ -536,7 +531,10 @@ agegender_data = rbind(
     EA = as.factor((if_else(
       Q509 == "White/Caucasian/European American", 1, 0))),
     gender = if_else(gender == "Female", 1, 0))
+```
 
+
+```{r ttest for age}
 # age 
   car::leveneTest(agegender_data$age, agegender_data$EA) 
   tt1 <- 
@@ -544,35 +542,13 @@ agegender_data = rbind(
       formula = age ~ EA,
       data = agegender_data,
       var.equal = FALSE); tt1
-  effectsize::t_to_d(t = tt1$statistic,
-                     df_error = tt1$parameter,
-                     n1 = nrow(agegender_data %>% dplyr::filter(EA == 1)),
-                     n2 = nrow(agegender_data %>% dplyr::filter(EA == 0)),
-                     sd1 = sd(agegender_data %>% dplyr::filter(EA == 1) %>% 
-                                dplyr::select(age)),
-                     sd2 = sd(agegender_data %>% dplyr::filter(EA == 0) %>% 
-                                dplyr::select(age)))
-  
+
   psych::describeBy(agegender_data$age, agegender_data$EA)
   psych::describe(agegender_data$age)
-  
-  agegender_data2 <- agegender_data %>% dplyr::filter(age < 30.1)
-  car::leveneTest(agegender_data2$age, agegender_data2$EA) 
-  tt2 <- 
-    t.test(
-      formula = age ~ EA,
-      data = agegender_data2,
-      var.equal = FALSE); tt2
-  effectsize::t_to_d(t = tt2$statistic,
-                     df_error = tt2$parameter,
-                     n1 = nrow(agegender_data2 %>% dplyr::filter(EA == 1)),
-                     n2 = nrow(agegender_data2 %>% dplyr::filter(EA == 0)),
-                     sd1 = sd(agegender_data2 %>% dplyr::filter(EA == 1) %>% 
-                                dplyr::select(age)),
-                     sd2 = sd(agegender_data2 %>% dplyr::filter(EA == 0) %>% 
-                                dplyr::select(age)))
-  psych::describeBy(agegender_data2$age, agegender_data2$EA)
+```
 
+
+```{r ttest for gender}
 # gender
 car::leveneTest(agegender_data$gender, agegender_data$EA) 
 t.test(
@@ -582,20 +558,23 @@ t.test(
 
   psych::describeBy(agegender_data$gender, agegender_data$EA)
   psych::describe(agegender_data$gender)
-  
-
-car::leveneTest(agegender_data2$gender, agegender_data2$EA) 
-t.test(
-  formula = gender ~ EA,
-  data = agegender_data2,
-  var.equal = TRUE)
-
-  psych::describeBy(agegender_data2$gender, agegender_data2$EA)
-  psych::describe(agegender_data2$gender)
-
-rm(agegender_data,agegender_data2, tt1, tt2)
-
 ```
+
+
+```{clean env, include = FALSE}
+rm(agegender_data,agegender_data2, tt1, tt2)
+```
+
+\newpage
+
+### Sensitivity analyses variables
+
+1. create variable to exclude participants who are above 30 years of age or who do not specify their age:  
+  
+* `r nrow(dataEA %>% dplyr::filter(age >30.1 | is.na(age)))` participants from `dataEA` are above 30/ did not specify their age.  
+* `r nrow(dataTN %>% dplyr::filter(age >30.1 | is.na(age)))` participants from `dataTN` are above 30/ did not specify their age. 
+
+
 ```{r filter age at most 30 for sensitivity}
 
 # filter out respondents above 30 years of age in dataEA
