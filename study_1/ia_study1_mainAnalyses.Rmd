@@ -299,7 +299,7 @@ p1 + p2 + p3 +
 aov(
   formula = response_i ~ mood*culture*faceEmotion + 
     Error(subID/(mood*faceEmotion)),
-  data = longGivingdata_i)
+  data = longGivingdata_i) %>% summary()
 
 ```
 
