@@ -99,6 +99,35 @@ summary(idealLAPresult_i)
 
 ```
 
+```{r model predicted visualization}
+
+emm <- emmeans(
+  idealAffectresult_i,
+  ~ IdealAffect * cultureEA
+)
+
+plot_df <- as.data.frame(emm) %>%
+  dplyr::mutate(
+    Culture = if_else(cultureEA == 1, "European American", "Taiwanese") %>%
+      as.factor()
+  )
+
+ggplot(plot_df %>% 
+         filter(grepl("_i", IdealAffect)),  # keep only the relevant IdealAffect levels
+       aes(x = IdealAffect, y = emmean, fill = Culture)) +
+  geom_bar(stat='identity', position='dodge') +
+  geom_errorbar(aes(ymin = emmean - SE, ymax = emmean + SE),
+                position = position_dodge(0.9), width = 0.1) +
+  scale_fill_manual(values = c(
+    "European American"="#F49070", 
+    "Taiwanese"="#52B2CF")) +
+  xlab("Ideal Affect") +
+  ylab("Predicted Value") +
+  ggtitle("Group Differences in Ideal Affect (Adjusted for Actual Affect)") 
+
+```
+
+
 \newpage
 
 # Does Induced Mood Influence Giving Towards Excited, Calm, and Neutral Responders Differently Across Cultures?
