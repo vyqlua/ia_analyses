@@ -1,0 +1,442 @@
+---
+title: "ia_study2_computeMeasures"
+author: " "
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+# Admin (Packages & Custom Functions)
+
+```{r setup}
+#setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+library(tidyverse)
+source("https://raw.githubusercontent.com/vyqlua/avi_functions/refs/heads/main/ipsatize_fn.R")
+```
+
+```{r function for calculating alpha for sensitivity datasets, echo = FALSE}
+
+# custom function for calculating alphas
+
+all_alphas <- function(data = data, items, constructs, 
+                       sensitivity = sensitivity_analyses) {
+  reliability_sensitivity <- data.frame()
+  cultures <- c("cultureEA == 1 | cultureEA == 0", 
+                "cultureEA == 1", "cultureEA == 0")
+  cultures_names <- c("overall", "EA", "TN")
+  for (j in 1:3) {
+    culturedata <- data %>% dplyr::filter(
+      eval(parse(text = cultures[j])))
+  # Iterate over each sensitivity analysis condition
+  for (i in 1:length(sensitivity)) {
+    currentdata <- tryCatch({
+      culturedata %>% dplyr::filter(
+        eval(parse(text = sensitivity[i])))
+    }, error = function(e) {
+      return(NULL) # Return NULL if error in filtering
+    })
+    # Proceed only if currentdata is not NULL
+    if (!is.null(currentdata)) {
+      reliab_list <- lapply(items, function(x) {
+        cols <- unlist(strsplit(x, ",\\s*")) # Split into individual columns
+        # Check if the required columns are all present and have variance
+        if (
+          all(cols %in% names(currentdata)) && 
+          any(sapply(currentdata[cols], var, na.rm = TRUE) > 0)) 
+          {
+          alpha_res <- psych::alpha(currentdata %>% 
+                                      dplyr::select(all_of(cols)), 
+                                    check.keys = FALSE)
+          return(data.frame(alpha = alpha_res$total$raw_alpha %>% 
+                              round(2)))
+        } 
+        else {
+          return(data.frame(alpha = NA)) 
+          # Return NA if not all columns are present or no variance
+        }
+      })
+      # Combine alpha values for current sensitivity analysis into a dataframe
+      reliab_df <- do.call(rbind, reliab_list)
+      reliab_df$construct <- constructs
+      reliab_df$dataframe <- sensitivity[i]
+      reliab_df$culture <- cultures_names[j]
+      # Combine with the overall results
+      reliability_sensitivity <- rbind(reliability_sensitivity, reliab_df)
+    }
+  }
+    }
+  return(reliability_sensitivity %>%
+           pivot_wider(names_from = dataframe,
+                       values_from = alpha) %>%
+  dplyr::mutate(construct = paste(construct, culture, sep = "_")) %>%
+    dplyr::select(-culture))
+}
+
+```
+
+```{r create list for specifying arguments to filter additional exclusion criteria easily, echo = FALSE}
+
+sensitivity_analyses <- c("!is.na(subID)", "exclude_sd != 1")
+sensitivity_analyses_i <- c("!is.na(subID)", "exclude_age != 1")
+
+```
+
+\newpage
+
+# Load Data
+
+```{r load data, message = FALSE}
+data <- read_csv("ia_study2_anon_data.csv")
+data <- data[ , -1]
+```
+
+
+\newpage
+
+# Ten Item Personality Inventory (TIPI)
+  
+Next, we compute the composite scores of the participant-level TIPI variables. Specifically, we calculate:
+  
+1. participant's extraversion `tipi_ex`
+  + calculated by averaging `tipi_1` (Extraverted, enthusiastic), `tipi_6` (reversed; Reserved, quiet)
+2. participant's agreeableness, `tipi_a` 
+  + calculated by averaging `tipi_2` (reversed; Critical, quarrelsome), `tipi_7` (Sympathetic, warm)
+3. participant's conscientiousness, `tipi_c`
+  + calculated by averaging `tipi_3` (Dependable, self-disciplined), `tipi_8` (reversed; Disorganized, careless)
+4. participant's emotoinal stability, `tipi_es`
+  + calculated by averaging `tipi_4` (reversed; Anxious, easily upset), `tipi_9` (Calm, emotionally stable)
+5. participant's openness to experience, `tipi_o`
+  + calculated by averaging `tipi_5` (Open to new experiences, complex), `tipi_10` (reversed; Conventional, uncreative)
+  
+```{r compute TIPI variables}
+
+# compute tipi variables
+data <- data %>% 
+  rowwise() %>%
+  dplyr::mutate( # reverse code tipi items
+    tipi_6r = 8 - tipi_6,
+    tipi_2r = 8 - tipi_2,
+    tipi_8r = 8 - tipi_8,
+    tipi_4r = 8 - tipi_4,
+    tipi_10r = 8 - tipi_10
+    ) %>%
+  dplyr::mutate( # calculate tipi_ex, tipi_a, tipi_c, tipi_es, and tipi_o
+    tipi_ex = mean(c(tipi_1, tipi_6r), na.rm = T),
+    tipi_a = mean(c(tipi_2r, tipi_7), na.rm = T),
+    tipi_c = mean(c(tipi_3, tipi_8r), na.rm = T),
+    tipi_es = mean(c(tipi_4r, tipi_9), na.rm = T),
+    tipi_o = mean(c(tipi_5, tipi_10r), na.rm = T)
+    ) %>%
+  ungroup()
+
+```
+```{r TIPI correlations}
+
+data %>%
+  dplyr::select("tipi_1", "tipi_6r", 
+                 "tipi_2r", "tipi_7",
+                 "tipi_3", "tipi_8r",
+                 "tipi_4r", "tipi_9",
+                 "tipi_5", "tipi_10r") %>% 
+  cor(use = "pairwise.complete.obs") %>%
+  round(2)
+
+# European American
+data %>% dplyr::filter(cultureEA == 1) %>%
+  dplyr::select("tipi_1", "tipi_6r", 
+                 "tipi_2r", "tipi_7",
+                 "tipi_3", "tipi_8r",
+                 "tipi_4r", "tipi_9",
+                "tipi_5", "tipi_10r") %>% 
+  cor(use = "pairwise.complete.obs") %>%
+  round(2)
+
+# Taiwanese
+data %>% dplyr::filter(cultureEA == 0) %>%
+  dplyr::select("tipi_1", "tipi_6r", 
+                 "tipi_2r", "tipi_7",
+                 "tipi_3", "tipi_8r",
+                 "tipi_4r", "tipi_9",
+                 "tipi_5", "tipi_10r")%>% 
+  cor(use = "pairwise.complete.obs") %>%
+  round(2)
+
+```
+
+# Interpersonal Reativity Index (IRI)
+  
+Next, we compute the composite scores of the participant-level IRI variables. Specifically, we calculate:
+  
+1. participant's perspective-taking `iri_pt`
+  + calculated by averaging `iri3`, `iri8`, `iri11`, `iri15`, `iri21`, `iri25`, & `iri28`
+2. participant's fantasy, `iri_fs` 
+  + calculated by averaging  `iri1`, `iri5`, `iri7`, `iri12`, `iri16`, `iri23`, & `iri26`
+3. participant's empathetic concern, `iri_ec`
+  + calculated by averaging  `iri2`, `iri4`, `iri9`, `iri14`, `iri18`, `iri20`, & `iri22`
+4. participant's personal distress, `iri_pd`
+  + calculated by averaging `iri6`, `iri10`, `iri13`, `iri17`, `iri19`, `iri24`, & `iri27`
+  
+  
+```{r compute IRI variables}
+
+# compute iri variables
+data <- data %>% 
+  rowwise() %>%
+  dplyr::mutate( # reverse code iri items
+    iri3r = 6 - iri3,
+    iri4r = 6 - iri4,
+    iri7r = 6 - iri7,
+    iri12r = 6 - iri12,
+    iri13r = 6 - iri13,
+    iri14r = 6 - iri14,
+    iri15r = 6 - iri15,
+    iri18r = 6 - iri18,
+    iri19r = 6 - iri19,
+    ) %>%
+  dplyr::mutate( # calculate iri_pt, iri_fs, iri_ec, iri_pd
+    iri_pt = mean(
+      c(iri3r, iri8, iri11, iri15r, iri21, iri25, iri28), na.rm = T),
+    iri_fs = mean(
+      c(iri1, iri5, iri7r, iri12r, iri16, iri23, iri26), na.rm = T),
+    iri_ec = mean(
+      c(iri2, iri4r, iri9, iri14r, iri18r, iri20, iri22), na.rm = T),
+    iri_pd = mean(
+      c(iri6, iri10, iri13r, iri17, iri19r, iri24, iri27), na.rm = T)
+    ) %>%
+  ungroup()
+```
+
+```{r IRI cronbach alphas}
+
+reliab_iri <- c("iri3r, iri8, iri11, iri15r, iri21, iri25, iri28", 
+              "iri1, iri5, iri7r, iri12r, iri16, iri23, iri26",
+              "iri2, iri4r, iri9, iri14r, iri18r, iri20, iri22", 
+              "iri6, iri10, iri13r, iri17, iri19r, iri24, iri27")
+
+reliab_iri_names <- c("iri_pt", "iri_fs", "iri_ec", "iri_pd")
+
+all_alphas(data, items = reliab_iri, constructs = reliab_iri_names, 
+           sensitivity = sensitivity_analyses)
+
+```
+
+\newpage
+
+# AVI
+  
+Now, we compute the composite scores of the participant-level AVI variables. 
+  
+```{r rename AVI variables}
+
+avi_items <-  c( 
+  "1_10" = ".sleepy",
+  "1_1"  = ".enthusiastic", 
+  "1_2"  = ".astonished",
+  "1_3"  = ".nervous",
+  "1_4"  = ".dull",
+  "1_5"  = ".quiet",
+  "1_6"  = ".relaxed",
+  "1_7"  = ".excited", 
+  "1_8"  = ".surprised",
+  "1_9"  = ".elated", 
+  "2_10" = ".fearful",
+  "2_1"  = ".still",
+  "2_2"  = ".lonely",
+  "2_3"  = ".strong",
+  "2_4"  = ".passive",
+  "2_5"  = ".content",
+  "2_6"  = ".sluggish",
+  "2_7"  = ".inactive",
+  "2_8"  = ".sad",
+  "2_9"  = ".euphoric", 
+  "3_10" = ".serene",
+  "3_1"  = ".happy",
+  "3_2"  = ".idle",
+  "3_3"  = ".calm",
+  "3_4"  = ".unhappy",
+  "3_5"  = ".aroused",
+  "3_6"  = ".hostile",
+  "3_7"  = ".satisfied",
+  "3_8"  = ".rested",
+  "3_9"  = ".peaceful",
+  "4_1"  = ".noemotion",
+  "4_2"  = ".energetic",
+  "4_3"  = ".ashamed",
+  "4_4"  = ".disgusted",
+  "4_5"  = ".stressed",
+  "4_6"  = ".guilty",
+  "4_7"  = ".contemptuous",
+  "4_8"  = ".fatigued",
+  "4_9"  = ".angry")
+
+names(data) <- names(data) |>
+  str_replace(paste0(names(avi_items), collapse = "|"),
+              avi_items[str_extract(names(data), paste(names(avi_items), collapse="|"))])
+
+```
+
+```{r calculate actual AVI}
+
+# actual affect
+data <- ipsatize_avi(data, 
+                     item_stem = "r.",
+                     remove = c("euphoric", "contemptuous", "angry"), 
+                     maximizing_pos = TRUE)
+glimpse(avi_codebook)
+
+```
+
+```{r calculate ideal AVI}
+
+# actual affect
+data <- ipsatize_avi(data, 
+                     item_stem = "i.",
+                     remove = c("euphoric", "contemptuous", "angry"),
+                     maximizing_pos = TRUE)
+glimpse(avi_codebook)
+
+```
+
+```{r AVI cronbach alphas}
+
+# calculate cronbach alpha for HAP and LAP
+
+reliab_avi <- c("r.enthusiastic, r.excited, r.elated", 
+                "r.relaxed, r.calm, r.peaceful, r.serene",
+                "i.enthusiastic, i.excited, i.elated",
+                "i.relaxed, i.calm, i.peaceful, i.serene")
+
+reliab_avi_names <- c("rHAP", "rLAP", "iHAP", "iLAP")
+
+all_alphas(data, items = reliab_avi, constructs = reliab_avi_names, 
+           sensitivity = sensitivity_analyses)
+
+```
+
+\newpage
+
+# Ipsatized giving scores  
+  
+Now, we compute the ipsatized scores of the trials. Alike the AVI variables, we calculate this by converting the amount of money given using this formula: `ipsatized score = (raw amoung given - individuals' mean amount given across all trials) / (individuals' sd across the amount of money given across all trials)`
+  
+```{r compute ipsatized giving scores}
+
+# compute ipsatized giving scores
+data <- data %>% 
+  rowwise() %>%
+  dplyr::mutate( # create intermediate variables for calculating ipsatize scores
+    givingMean = mean(
+      c_across(matches("^raw[1-9][1-9]*[0]*$")), na.rm = TRUE),
+    givingSd = sd(
+      c_across(matches("^raw[1-9][1-9]*[0]*$")), na.rm = TRUE)) %>%
+  dplyr::mutate( # create ipsatized item scores
+    across(matches("^raw[1-9][1-9]*[0]*$"), 
+           ~ as.numeric((.x - givingMean) / givingSd),
+           .names = "{.col}_i")) %>%
+  ungroup()
+
+```
+
+\newpage
+
+# Ipsatized trait rating scores  
+  
+Finally, we compute the ipsatized scores of the trait ratings for the faces (items that start with `trait`, `vale`, and `arou`). 
+
+All participants rated the faces on numerous traits. Specifically, they responded to the prompt "To what extent is this person..." (e.g., "Competent", "Trustworthy", etc.; 1 = *Not at all*, 4 = *Moderately*, 7 = *Extremely*) and how positive ("*How <u>negative - positive</u> do you feel when you see this face?*"; 1 = *Extremely negative*, 7 = *Extremely positive*) and aroused ("*How <u>not-aroused - aroused</u> do you feel when you see this face? Aroused means activated, charged, alert, or energized physically and mentally.*"; 1 = *Not at all aroused*, 7 = *Extremely aroused*) they feel when they see the face. For the repeated ratings, we only include the first rating they provide.
+
+Alike the AVI and giving variables, we calculate this by converting the ratings given using this formula: `ipsatized score = (raw rating - individuals' mean rating across all traits and faces) / (individuals' sd rating across all traits and faces)`. Note that for valence (`vale`) and arousal (`arou`) ratings, they are ipsatized within the valence and arousal ratings only (i.e., `ipsatized valence = (raw valence rating - individuals' mean rating of valence across all faces) / (individuals' sd of valence across all faces)`.
+  
+```{r compute ipsatized trait rating scores}
+
+# compute ipsatized trait rating scores
+data <- data %>% 
+  rowwise() %>%
+  dplyr::mutate( # create intermediate variables for calculating ipsatize scores
+    traitRatingMean = mean(
+      c_across(matches("^trait[1-9][0-9]*_")), na.rm = TRUE),
+    traitRatingSd = sd(
+      c_across(matches("^trait[1-9][0-9]*_")), na.rm = TRUE),
+    valeRatingMean = mean(
+      c_across(matches("^vale[1-9][0-9]*$")), na.rm = TRUE),
+    valeRatingSd = sd(
+      c_across(matches("^vale[1-9][0-9]*$")), na.rm = TRUE),
+    arouRatingMean = mean(
+      c_across(matches("^arou[1-9][0-9]*$")), na.rm = TRUE),
+    arouRatingSd = sd(
+      c_across(matches("^arou[1-9][0-9]*$")), na.rm = TRUE)) %>%
+  dplyr::mutate( 
+    # create ipsatized item scores
+    across(matches("^trait[1-9][0-9]*_"), 
+           ~ as.numeric((.x - traitRatingMean) / traitRatingSd),
+           .names = "{.col}_i")) %>%
+  dplyr::mutate( # create ipsatized item scores
+    across(matches("^vale[1-9][0-9]*$"), 
+           ~ as.numeric((.x - valeRatingMean) / valeRatingSd),
+           .names = "{.col}_i")) %>%
+  dplyr::mutate( # create ipsatized item scores
+    across(matches("^arou[1-9][0-9]*$"), 
+           ~ as.numeric((.x - arouRatingMean) / arouRatingSd),
+           .names = "{.col}_i")) %>%
+  ungroup()
+
+```
+
+\newpage
+
+# Save data computed frame 
+
+```{r write csv}
+
+write.csv(data, "ia_study2_anon_data_computed.csv")
+
+```
+
+## Descriptives
+
+```{r descriptives function, message = FALSE}
+
+# descriptives function
+describe_all <- function(data, filter_condition1) {
+  for (i in 1:length(filter_condition1)) {
+      subset_data <- data %>% 
+        filter(eval(parse(text = filter_condition1[i])))
+   desc <- subset_data  %>% rowwise() %>%
+    dplyr::mutate(
+      avg_giving_amt = mean(
+        c_across((starts_with("raw") & !contains("_Page.Submit")))),
+      avg_giving_RT = mean(
+        c_across((starts_with("raw") & contains("_Page.Submit"))))) %>% 
+      dplyr::select(gender_nonfemale, sexualpref_nonhetero, ethn_nonmajority,
+                    age, famises2_numbered, selfses2_numbered, 
+                    tipi_ex, tipi_a, tipi_c, tipi_es, tipi_o,
+                    iri_pt, iri_fs, iri_ec, iri_pd,
+                    avg_giving_amt, avg_giving_RT,
+                    rHAP, rLAP, iHAP, iLAP) %>%
+     psych::describe(fast = TRUE, skew = FALSE)
+  print(filter_condition1[i])
+  print(desc)
+  }
+}
+
+```
+
+\newpage
+
+```{r describe}
+# Pooled data
+describe_all(data = data, sensitivity_analyses)
+```
+
+\newpage
+
+```{r describe EA}
+# European American
+describe_all(data = data %>% dplyr::filter(cultureEA == 1), sensitivity_analyses)
+```
+
+\newpage
+
+```{r describe TN}
+# Taiwanese
+describe_all(data = data %>% dplyr::filter(cultureEA == 0), sensitivity_analyses)
+```
