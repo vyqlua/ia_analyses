@@ -446,7 +446,7 @@ dataTN <- clean_responses(dataTN)
 
 # Filtering participants
   
-## Exclusion criteria: completeness, verifiable responses, time on survey
+## Exclusion criteria: completeness, verifiable responses, no var in giving
   
 Now we'll filter out participants from analyses. 
   
