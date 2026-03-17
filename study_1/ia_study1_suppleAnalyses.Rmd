@@ -422,7 +422,7 @@ p1 + p2 + p3 +
 ```
 
 ```{r clean env longGivingdata2, include = FALSE}
-rm(longGivingdata2)
+rm(longGivingdata2, p1, p2, p3)
 ```
 
 2. Supple analyses (exclude_sd != 1) - Excludes participants who gave equally to all targets
@@ -527,7 +527,7 @@ p1 + p2 + p3 +
 ```
 
 ```{r clean env longGivingdata2a, include = FALSE}
-rm(longGivingdata2a)
+rm(longGivingdata2a, p1, p2, p3)
 ```
 
 
