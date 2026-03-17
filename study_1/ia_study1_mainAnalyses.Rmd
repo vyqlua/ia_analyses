@@ -120,6 +120,12 @@ ggplot(plot_df %>%
 
 ```
 
+```{r clean env avi data, include = FALSE}
+
+rm(emm, idealAffectresult_i, idealHAPresult_i, idealLAPresult_i, plot_df)
+
+```
+
 
 \newpage
 
@@ -290,6 +296,13 @@ p1 + p2 + p3 +
 
 ```
 
+```{r clean env longGivingdata_i2, include = FALSE}
+
+rm(longGivingdata_i2, p1, p2, p3)
+
+```
+
+
 \newpage
 
 ## Analyses
@@ -363,3 +376,11 @@ emm_3way_byfaceEmotion <- emmeans(pairwise, ~ culture * mood | faceEmotion)
 pairs(emm_3way_byfaceEmotion) # p values
 #confint(pairs(emm_3way_byfaceEmotion)) # confidence intervals
 ```
+```{r clean environment, include = FALSE}
+
+rm(emm_3way_mood, emm_3way_byfaceEmotion, emm_3way_bymood, 
+   emm_3way_faceEmotion, emm_3way_faceEmotionCulture, emm_3way_faceEmotionMood,
+   pairwise)
+
+```
+
