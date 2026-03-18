@@ -2,8 +2,12 @@
 title: "ia_study1_suppleAnalyses"
 author: "Verity Y. Q. Lua"
 date: "`r Sys.Date()`"
-output: pdf_document
+output: 
+  pdf_document:
+    toc: true
 ---
+
+\newpage
 
 ```{r setup, message = FALSE}
 #setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
@@ -11,6 +15,8 @@ library(tidyverse)
 library(emmeans)
 library(psych)
 library(patchwork)
+library(lme4)
+library(lmerTest)
 source("https://raw.githubusercontent.com/vyqlua/avi_functions/refs/heads/main/ipsatize_fn.R")
 ```
 
@@ -36,6 +42,38 @@ theme_set(theme_myplot)
 
 ```
 
+```{r define aov_analysis fn}
+# Define AOV analysis function
+
+aov_analysis <- 
+  function(formula, data, filter_condition1, filter_condition2 = NULL) 
+    {
+    # Initialize a list to store results from each iteration
+    analysis_result <- list()
+  if (is.null(filter_condition2)) {
+    for (i in 1:length(filter_condition1)) {
+      subset_data <- data %>% 
+        filter(eval(parse(text = filter_condition1[i])))
+    # Run the analysis on the subset
+    analysis_result[[filter_condition1[i]]] <- 
+      aov(formula, data = subset_data) %>% summary()
+    }}
+  else {
+    for (j in 1:length(filter_condition2)) {
+      for (i in 1:length(filter_condition1)) {
+        subset_data <- data %>% 
+          filter(eval(parse(text = filter_condition1[i]))) %>%
+          filter(eval(parse(text = filter_condition2[j])))
+    # Run the analysis on the subset
+    analysis_result[[
+      paste(filter_condition1[i], "&", filter_condition2[j])]] <- 
+      aov(formula = formula, data = subset_data) %>% summary()
+      }}
+    }
+  return(analysis_result)
+}
+
+```
 
 \newpage
 
@@ -50,24 +88,10 @@ levelBreakdown <- read_csv("ia_TrialsBreakdown.csv")
 
 \newpage
 
-# Supple For: Are There Cultural Differences in Ideal Affect between European Americans and Taiwanese?
-
-## Raw Ideal Affect Scores
-
-```{r plot AVI}
-plot_avi(data, group_id = "cultureEA", ipsatized_only = FALSE)
-```
-
-\newpage
-
-# Supple For: Does Induced Mood Influence Giving Towards Excited, Calm, and Neutral Responders Differently Across Cultures?
-
-## Ipsatized Giving Controlling for Age
-
-### Admin before analyses
+## Convert data to long data
 
 ```{r convert giving data to long form ip}
-# convert AVI data into long form
+# convert giving data into long form
 longGivingdata_i <- data %>% 
   dplyr::select(
     subID, cultureEA, order,
@@ -107,7 +131,228 @@ longGivingdata_i = longGivingdata_i %>%
                 !is.na(age))
 ```
 
+```{r convert giving data to long form}
+# convert AVI data into long form
+longGivingdata <- data %>% 
+  dplyr::select(
+    subID, cultureEA, order,
+    starts_with("raw") & !contains("_i") & !contains("Page"),
+    starts_with("exclude"),
+    age # covariates 
+    ) %>%
+  pivot_longer(
+    cols = `raw1`:`raw36`, 
+    names_to = "trial",
+    values_to = "response") %>%
+  dplyr::mutate(
+    trial = as.numeric(substr(trial, start = 4, stop = str_length(trial))))
+```
+
+```{r attach trial information}
+# add info on incidental affect (mood), face gender, face race, and face emotion for each trial.
+longGivingdata = longGivingdata %>% 
+  dplyr::mutate(
+    mood = levelBreakdown$mood[trial],
+    faceGender = levelBreakdown$faceGender[trial], 
+    faceRace = levelBreakdown$faceRace[trial], 
+    faceEmotion = levelBreakdown$faceEmotion[trial])
+
+# make variables factors
+longGivingdata = longGivingdata %>% 
+  dplyr::mutate(
+    culture = ifelse(cultureEA == 1, "EA", "TN") %>% as.factor(),
+    mood = factor(mood, levels = c("HAP", "HAN","Neutral")),
+    faceRace = factor(faceRace, levels = c("White", "Asian")),
+    faceGender = factor(faceGender, levels = c("Male", "Female")),
+    faceEmotion = factor(faceEmotion, levels = c("Excited", "Calm", "Neutral")),
+    subID = factor(subID, unique(subID)))
+
+longGivingdata = longGivingdata %>% dplyr::filter(!is.na(response))
+```
+
 \newpage
+
+## Attach AVI data to giving data
+
+```{r merge baseline to giving data}
+
+baseAVIdata <- 
+  data %>%
+  dplyr::select(subID, cultureEA, 
+                exclude_age, exclude_sd, 
+                gender, age, sexualpref, 
+                rHAP, rLAP, rHAN, rLAN,
+                iHAP, iLAP, iHAN, iLAN,
+                rMaxPos, iMaxPos,
+                rHAP_i, rLAP_i, rHAN_i, rLAN_i,
+                iHAP_i, iLAP_i, iHAN_i, iLAN_i,
+                rMaxPos_i, iMaxPos_i,
+                avatar_ori) %>%
+  dplyr::mutate(
+    avatar_ori = case_when(
+      avatar_ori == "1-a" ~ "FAN",
+      avatar_ori == "1-b" ~ "FAE",
+      avatar_ori == "1-c" ~ "FAC",
+      avatar_ori == "2-a" ~ "MWE",
+      avatar_ori == "2-b" ~ "MWC",
+      avatar_ori == "2-c" ~ "MWN",
+      avatar_ori == "3-a" ~ "MAN",
+      avatar_ori == "3-b" ~ "MAC",
+      avatar_ori == "3-c" ~ "MAE",
+      avatar_ori == "4-a" ~ "FWN",
+      avatar_ori == "4-b" ~ "FWC",
+      avatar_ori == "4-c" ~ "FWE")) %>%
+  separate_wider_position(
+    avatar_ori,
+    widths = c(
+      avatar_gender = 1,
+      avatar_race = 1,
+      avatar_expression = 1
+    )) %>%
+  dplyr::mutate(
+    avatar_gender = factor(avatar_gender,
+                           levels = c("M", "F"),
+                           labels = c("Male", "Female")),
+    avatar_race = factor(avatar_race,
+                         levels = c("W", "A"),
+                         labels = c("White", "Asian")), 
+    avatar_expression = factor(avatar_expression,
+                               levels = c("E", "C", "N"),
+                               labels = c("Excited", "Calm", "Neutral")))
+
+longGivingdata <- 
+  left_join(longGivingdata,
+            baseAVIdata %>% 
+              dplyr::select(subID:sexualpref,
+                            avatar_gender, avatar_race, avatar_expression,
+                            rHAP:iMaxPos),
+            by = intersect(
+              colnames(longGivingdata), 
+              colnames(baseAVIdata)))
+
+
+longGivingdata_i <- 
+  left_join(longGivingdata_i,
+            baseAVIdata %>% 
+              dplyr::select(subID:sexualpref,
+                            avatar_gender, avatar_race, avatar_expression,
+                            rHAP_i:iMaxPos_i),
+            by = intersect(
+              colnames(longGivingdata_i), 
+              colnames(baseAVIdata)))
+
+```
+
+## Attach trait dating data to giving data
+
+```{r convert trait rating data to long form}
+
+# convert trait rating data into long form
+traitRatingsdata <- data %>% 
+  dplyr::select(
+    subID, cultureEA, order,
+    starts_with("exclude"),
+    starts_with("trait") & !contains("Mean") & !contains("Sd"),
+    starts_with("vale") & !contains("Mean") & !contains("Sd"),
+    starts_with("arou") & !contains("Mean") & !contains("Sd")) %>%
+  pivot_longer(
+    cols = `trait1_Competent`:`arou18_i`, 
+    names_to = "rating",
+    values_to = "response") %>%
+  dplyr::mutate(rating_no = as.numeric(str_extract_all(rating, "[0-9]+")))
+
+# add info on face gender, face race, and face emotion for each rating
+traitRatingsdata <- traitRatingsdata %>% 
+  dplyr::mutate(
+    trial = ifelse(order == 1 | order == 3, 
+                   rating_no, 
+                   36-rating_no+1),
+    faceGender = ifelse(order == 1 | order == 3, 
+                        levelBreakdown$faceGender[rating_no], 
+                        levelBreakdown$faceGender[36-rating_no+1]),
+    faceRace = ifelse(order == 1 | order == 3, 
+                      levelBreakdown$faceRace[rating_no], 
+                      levelBreakdown$faceRace[36-rating_no+1]),
+    faceEmotion = ifelse(order == 1 | order == 3, 
+                         levelBreakdown$faceEmotion[rating_no], 
+                         levelBreakdown$faceEmotion[36-rating_no+1]))
+
+# make variables factors
+traitRatingsdata = traitRatingsdata %>% 
+  dplyr::mutate(
+    culture = ifelse(
+      cultureEA == 1, "EA", "TN") %>% as.factor(),
+    faceRace = factor(
+      faceRace, levels = c("White", "Asian")),
+    faceGender = factor(
+      faceGender, levels = c("Male", "Female")),
+    faceEmotion = factor(
+      faceEmotion, levels = c("Excited", "Calm", "Neutral", "Negative")),
+    subID = factor(
+      subID, unique(subID)))
+
+# convert data back into wide form
+traitRatingsdata <- traitRatingsdata %>% 
+  dplyr::mutate(
+    rating = str_replace(rating, "trait[1-9][0-9]*_", ""),
+    rating = str_replace(rating, "vale[1-9][0-9]*", "Valence"),
+    rating = str_replace(rating, "arou[1-9][0-9]*", "Arousal")) %>%
+  pivot_wider(
+    id_cols = c("subID", "culture", "cultureEA", "order", "trial", "rating_no",
+                "exclude_age", "exclude_sd", 
+                "faceRace", "faceGender", "faceEmotion"),
+    names_from = "rating",
+    values_from = "response")
+
+```
+
+```{r merge trait ratings with giving data}
+
+longGivingdata <-
+  left_join(
+    longGivingdata,
+    traitRatingsdata %>% 
+      dplyr::select(subID:faceEmotion,
+                    Competent:aGoodPerson,
+                    Valence, Arousal),
+    by = intersect(colnames(longGivingdata), colnames(traitRatingsdata))
+  ) %>%
+  dplyr::mutate( 
+    culture = ifelse(cultureEA == 1, "EA", "TN") %>% as.factor())
+
+```
+
+```{r merge trait ratings with giving data ip}
+
+longGivingdata_i <-
+  left_join(
+    longGivingdata_i,
+    traitRatingsdata %>% 
+      dplyr::select(subID:faceEmotion,
+                    Competent_i:aGoodPerson_i,
+                    Valence_i, Arousal_i),
+    by = intersect(colnames(longGivingdata_i), colnames(traitRatingsdata))
+  ) %>%
+  dplyr::mutate( 
+    culture = ifelse(cultureEA == 1, "EA", "TN") %>% as.factor())
+
+```
+
+\newpage
+
+# Supple For: Are There Cultural Differences in Ideal Affect between European Americans and Taiwanese?
+
+## Raw Ideal Affect Scores
+
+```{r plot AVI}
+plot_avi(data, group_id = "cultureEA", ipsatized_only = FALSE)
+```
+
+\newpage
+
+# Supple For: Does Induced Mood Influence Giving Towards Excited, Calm, and Neutral Responders Differently Across Cultures?
+
+## Ipsatized Giving Controlling for Age
 
 ### Sample size
 
@@ -203,81 +448,9 @@ pairs(emm_3way_byfaceEmotion) # p values
 #confint(pairs(emm_3way_byfaceEmotion)) # confidence intervals
 ```
 
+\newpage
+
 ## Raw Giving Scores
-
-### Admin before analyses
-
-```{r define aov_analysis fn}
-# Define the analysis function
-
-aov_analysis <- 
-  function(formula, data, filter_condition1, filter_condition2 = NULL) 
-    {
-    # Initialize a list to store results from each iteration
-    analysis_result <- list()
-  if (is.null(filter_condition2)) {
-    for (i in 1:length(filter_condition1)) {
-      subset_data <- data %>% 
-        filter(eval(parse(text = filter_condition1[i])))
-    # Run the analysis on the subset
-    analysis_result[[filter_condition1[i]]] <- 
-      aov(formula, data = subset_data) %>% summary()
-    }}
-  else {
-    for (j in 1:length(filter_condition2)) {
-      for (i in 1:length(filter_condition1)) {
-        subset_data <- data %>% 
-          filter(eval(parse(text = filter_condition1[i]))) %>%
-          filter(eval(parse(text = filter_condition2[j])))
-    # Run the analysis on the subset
-    analysis_result[[
-      paste(filter_condition1[i], "&", filter_condition2[j])]] <- 
-      aov(formula = formula, data = subset_data) %>% summary()
-      }}
-    }
-  return(analysis_result)
-}
-
-```
-
-```{r convert giving data to long form}
-# convert AVI data into long form
-longGivingdata <- data %>% 
-  dplyr::select(
-    subID, cultureEA, order,
-    starts_with("raw") & !contains("_i") & !contains("Page"),
-    starts_with("exclude"),
-    age # covariates 
-    ) %>%
-  pivot_longer(
-    cols = `raw1`:`raw36`, 
-    names_to = "trial",
-    values_to = "response") %>%
-  dplyr::mutate(
-    trial = as.numeric(substr(trial, start = 4, stop = str_length(trial))))
-```
-
-```{r attach trial information}
-# add info on incidental affect (mood), face gender, face race, and face emotion for each trial.
-longGivingdata = longGivingdata %>% 
-  dplyr::mutate(
-    mood = levelBreakdown$mood[trial],
-    faceGender = levelBreakdown$faceGender[trial], 
-    faceRace = levelBreakdown$faceRace[trial], 
-    faceEmotion = levelBreakdown$faceEmotion[trial])
-
-# make variables factors
-longGivingdata = longGivingdata %>% 
-  dplyr::mutate(
-    culture = ifelse(cultureEA == 1, "EA", "TN") %>% as.factor(),
-    mood = factor(mood, levels = c("HAP", "HAN","Neutral")),
-    faceRace = factor(faceRace, levels = c("White", "Asian")),
-    faceGender = factor(faceGender, levels = c("Male", "Female")),
-    faceEmotion = factor(faceEmotion, levels = c("Excited", "Calm", "Neutral")),
-    subID = factor(subID, unique(subID)))
-
-longGivingdata = longGivingdata %>% dplyr::filter(!is.na(response))
-```
 
 ### Sample size
 
@@ -354,7 +527,7 @@ ggplot(
 
 ```
 
-```{r plot two-ways (!is.na(subID)), message = FALSE, fig.width = 10, fig.height = 15}
+```{r plot two-ways (!is.na(subID)), message = FALSE, fig.width = 10, fig.height = 12}
 
 p1 <- ggplot(longGivingdata2 %>%
                group_by(subID, mood, Culture) %>% 
@@ -459,7 +632,7 @@ ggplot(
 
 ```
 
-```{r plot two-ways (exclude_sd), message = FALSE, fig.width = 10, fig.height = 15}
+```{r plot two-ways (exclude_sd), message = FALSE, fig.width = 10, fig.height = 12}
 
 p1 <- ggplot(longGivingdata2a %>%
                group_by(subID, mood, Culture) %>% 
@@ -601,5 +774,360 @@ pairs(emm_3way_byfaceEmotion) # p values
 rm(emm_3way_mood, emm_3way_byfaceEmotion, emm_3way_bymood, 
    emm_3way_faceEmotion, emm_3way_faceEmotionCulture, emm_3way_faceEmotionMood,
    pairwise)
+
+```
+
+\newpage
+
+
+## Using Ideal Affect as Moderator
+
+### Sample size
+
+```{r sample size main ip ideal affect}
+print("n_total:"); longGivingdata_i %>%
+  dplyr::summarise(n = dplyr::n_distinct(subID)) %>% 
+  pull()
+
+print("n_tw:"); longGivingdata_i %>%
+  dplyr::filter(culture == "TN") %>%
+  dplyr::summarise(n_tw = dplyr::n_distinct(subID)) %>% 
+  pull()
+
+print("n_ea:"); longGivingdata_i %>%
+  dplyr::filter(culture == "EA") %>%
+  dplyr::summarise(n_ea = dplyr::n_distinct(subID)) %>% 
+  pull()
+```
+
+\newpage
+
+### Visualizations
+
+```{r plot three-way iMaxPos_i, message = FALSE, fig.width = 10, fig.height = 12}
+
+p1 <- ggplot(longGivingdata_i,
+       aes(x = iMaxPos_i, y = response_i)) +
+  facet_grid(~ faceEmotion) +
+  geom_point(alpha = .3, aes(color = culture)) +
+  geom_smooth(method = "lm", se = TRUE) +
+  xlab("iMaxPos_i") +
+  ylab("Amount Given (Ipsatized)") +
+  ggtitle("Amount Given by iMaxPos_i and Responder's Facial Expression")
+
+p2 <- ggplot(longGivingdata_i,
+       aes(x = iMaxPos_i, y = response_i)) +
+  facet_grid(~ mood) +
+  geom_point(alpha = .3, aes(color = culture)) +
+  geom_smooth(method = "lm", se = TRUE) +
+  xlab("iMaxPos_i") +
+  ylab("Amount Given (Ipsatized)") +
+  ggtitle("Amount Given by iMaxPos_i and Mood")
+
+p1 + p2 +
+  patchwork::plot_layout(
+    ncol = 1
+  )
+  
+```
+
+\newpage
+
+Remove outliers
+
+```{r plot three-way iMaxPos_i rm outliers, message = FALSE, fig.width = 10, fig.height = 12}
+
+longGivingdata_i_rmOUT <- 
+  longGivingdata_i %>%
+  dplyr::filter(
+    iMaxPos_i > mean(iMaxPos_i) - 3*sd(iMaxPos_i),
+    iMaxPos_i < mean(iMaxPos_i) + 3*sd(iMaxPos_i)
+  )
+
+# sample size
+
+longGivingdata_i_rmOUT %>% 
+  distinct(subID, .keep_all = TRUE) %>%
+  dplyr::select(culture) %>%
+  table()
+
+p1 <- ggplot(longGivingdata_i_rmOUT,
+       aes(x = iMaxPos_i, y = response_i)) +
+  facet_grid(~ faceEmotion) +
+  geom_point(alpha = .3, aes(color = culture)) +
+  geom_smooth(method = "lm", se = TRUE) +
+  xlab("iMaxPos_i") +
+  ylab("Amount Given (Ipsatized)") +
+  ggtitle("Amount Given by iMaxPos_i and Responder's Facial Expression")
+
+p2 <- ggplot(longGivingdata_i_rmOUT,
+       aes(x = iMaxPos_i, y = response_i)) +
+  facet_grid(~ mood) +
+  geom_point(alpha = .3, aes(color = culture)) +
+  geom_smooth(method = "lm", se = TRUE) +
+  xlab("iMaxPos_i") +
+  ylab("Amount Given (Ipsatized)") +
+  ggtitle("Amount Given by iMaxPos_i and Mood")
+
+p1 + p2 +
+  patchwork::plot_layout(
+    ncol = 1
+  )
+  
+```
+
+```{r clean env iMaxPos Giving, include = FALSE}
+
+rm(longGivingdata_i_rmOUT, p1, p2)
+
+```
+
+\newpage
+
+### Three-Way Analyses
+
+```{r main three-way analysis ideal affect maxpos}
+
+lmer(
+  formula = response_i ~ mood*iMaxPos_i*faceEmotion + 
+    rMaxPos_i +
+    (1 | mood),
+  data = longGivingdata_i) %>% summary()
+
+```
+
+\newpage
+
+### Within Neu Mood Analyses
+
+```{r analysis within neu mood ideal affect}
+
+lmer(
+  formula = response_i ~ iHAP_i*faceEmotion + iLAP_i*faceEmotion +
+    rHAP_i + rLAP_i +
+    (1 | faceEmotion),
+  data = longGivingdata_i %>%
+    dplyr::filter(
+      mood == "Neutral"
+    )) %>% summary()
+
+```
+
+\newpage
+
+# Other analyses
+
+## Avatar choosen
+
+### Visualizations
+            
+Avatar choosen
+
+```{r plot choosen avatar, echo = FALSE, fig.width = 10, fig.height = 11}
+
+p1 <- ggplot(
+  longGivingdata %>%
+    distinct(subID, .keep_all = TRUE) %>%
+    group_by(culture) %>%
+    summarize(
+      Male = sum(avatar_gender == "Male"),
+      Female = sum(avatar_gender == "Female"),
+      .groups = "drop"
+    ) %>%
+    pivot_longer(c(Male, Female),
+                 names_to = "avatar_gender",
+                 values_to = "count"),
+  aes(x = culture, y = count, fill = avatar_gender)) +
+  geom_col(position = "dodge") +
+  scale_fill_manual(values = c("Male"="lightblue", "Female"="pink")) 
+
+p2 <- ggplot(
+  longGivingdata %>%
+    distinct(subID, .keep_all = TRUE) %>%
+    group_by(culture) %>%
+    summarize(
+      White = sum(avatar_race == "White"),
+      Asian = sum(avatar_race == "Asian"),
+      .groups = "drop"
+    ) %>%
+    pivot_longer(c(White, Asian),
+                 names_to = "avatar_race",
+                 values_to = "count"),
+  aes(x = culture, y = count, fill = avatar_race)) +
+  geom_col(position = "dodge") +
+  scale_fill_manual(values = c("White"="#F49070", "Asian"="#52B2CF")) 
+
+p3 <- ggplot(
+  longGivingdata %>%
+    distinct(subID, .keep_all = TRUE) %>%
+    group_by(culture) %>%
+    summarize(
+      Excited = sum(avatar_expression == "Excited"),
+      Calm = sum(avatar_expression == "Calm"),
+      Neutral = sum(avatar_expression == "Neutral"),
+      .groups = "drop"
+    ) %>%
+    pivot_longer(c(Excited, Calm, Neutral),
+                 names_to = "avatar_expression",
+                 values_to = "count"),
+  aes(x = culture, y = count, fill = avatar_expression)) +
+  geom_col(position = "dodge") + 
+  scale_fill_manual(values = 
+                      c("Neutral"="grey", 
+                        "Excited"="lightyellow",
+                        "Calm"="lightblue"))
+
+p1 + p2 + p3 +
+  patchwork::plot_layout(
+    ncol = 1
+  )
+
+```
+
+```{r clean environment plots, include = FALSE}
+
+rm(p1, p2, p3)
+
+```
+
+\newpage
+
+Avatar choosen congruence
+
+```{r avatar gender congruence, fig.width = 10, fig.height = 5}
+
+ggplot(
+  longGivingdata %>%
+    distinct(subID, .keep_all = TRUE) %>%
+    group_by(culture, gender) %>%
+    summarize(
+      n = n(),
+      Male = sum(avatar_gender == "Male"),
+      Female = sum(avatar_gender == "Female"),
+      .groups = "drop"
+    ) %>%
+    dplyr::mutate(
+      Male = Male/n,
+      Female = Female/n) %>%
+    pivot_longer(c(Male, Female),
+                 names_to = "avatar_gender",
+                 values_to = "count"),
+  aes(x = culture, y = count, fill = avatar_gender)) +
+  geom_col(position = "dodge") +
+  facet_wrap(~ gender) +
+  ylim(0,1) +
+  scale_fill_manual(values = c("Male"="lightblue", "Female"="pink")) 
+
+```
+
+```{r avatar race congruence, fig.width = 10, fig.height = 5}
+
+ggplot(
+  longGivingdata %>%
+    distinct(subID, .keep_all = TRUE) %>%
+    group_by(culture) %>%
+    summarize(
+      n = n(),
+      White = sum(avatar_race == "White"),
+      Asian = sum(avatar_race == "Asian"),
+      .groups = "drop"
+    ) %>%
+    dplyr::mutate(
+      White = White/n,
+      Asian = Asian/n) %>%
+    pivot_longer(c(White, Asian),
+                 names_to = "avatar_race",
+                 values_to = "count"),
+  aes(x = culture, y = count, fill = avatar_race)) +
+  geom_col(position = "dodge") +
+  ylim(0,1) +
+  scale_fill_manual(values = c("White"="#F49070", "Asian"="#52B2CF")) 
+
+```
+
+\newpage
+
+## Trait ratings
+
+### Visualizations
+
+Raw Ratings
+                                                   
+```{r plot trait ratings of faces raw, echo = FALSE, fig.width = 10, fig.height = 12}
+
+vars <- c(
+  'Valence', 'Arousal', 'aGoodPerson',
+  'Friendly', 'Competent', 'Trustworthy', 
+  'Dominant', 'FinanciallyNeedy', 'Selfish')
+
+plot_data <- 
+  longGivingdata %>%
+  pivot_longer(
+    all_of(vars), names_to = "trait", values_to = "rating") %>%
+  group_by(subID, faceEmotion, culture, trait) %>%
+  summarise(rating = mean(rating, na.rm = TRUE), .groups="drop") %>%
+  group_by(faceEmotion, culture, trait) %>%
+  summarise(
+    mean = mean(rating, na.rm = TRUE),
+    SD = sd(rating, na.rm = TRUE),
+    SE = SD/sqrt(n()),
+    .groups="drop"
+  ) %>%
+  dplyr::mutate(
+    trait = factor(trait, levels = vars))
+
+ggplot(plot_data, aes(faceEmotion, mean, fill = culture)) +
+  geom_bar(stat="identity", position="dodge") +
+  geom_errorbar(
+    aes(ymin = mean-SE, ymax = mean+SE),
+    position = position_dodge(0.9), width = 0.1
+  ) +
+  geom_hline(yintercept = 4, linetype = "dotted") +
+  scale_fill_manual(values = c("EA"="#F49070", "TN"="#52B2CF")) +
+  facet_wrap(~ trait, ncol = 3) +
+  xlab("Facial Expression") +
+  ylab("Rating (Raw)") +
+  ggtitle("Trait Ratings by Responder's Facial Expression")
+
+```
+
+\newpage
+
+Ipsatized Ratings
+                                                   
+```{r plot trait ratings of faces ip, echo = FALSE, fig.width = 10, fig.height = 12}
+
+vars <- c(
+  'Valence_i', 'Arousal_i', 'aGoodPerson_i',
+  'Friendly_i', 'Competent_i', 'Trustworthy_i', 
+  'Dominant_i', 'FinanciallyNeedy_i', 'Selfish_i')
+
+plot_data_i <- 
+  longGivingdata_i %>%
+  pivot_longer(
+    all_of(vars), names_to = "trait", values_to = "rating") %>%
+  group_by(subID, faceEmotion, culture, trait) %>%
+  summarise(rating = mean(rating, na.rm = TRUE), .groups="drop") %>%
+  group_by(faceEmotion, culture, trait) %>%
+  summarise(
+    mean = mean(rating, na.rm = TRUE),
+    SD = sd(rating, na.rm = TRUE),
+    SE = SD/sqrt(n()),
+    .groups="drop"
+  ) %>%
+  dplyr::mutate(
+    trait = factor(trait, levels = vars))
+
+ggplot(plot_data_i, aes(faceEmotion, mean, fill = culture)) +
+  geom_bar(stat="identity", position="dodge") +
+  geom_errorbar(
+    aes(ymin = mean-SE, ymax = mean+SE),
+    position = position_dodge(0.9), width = 0.1
+  ) +
+  scale_fill_manual(values = c("EA"="#F49070", "TN"="#52B2CF")) +
+  facet_wrap(~ trait, ncol = 3) +
+  xlab("Facial Expression") +
+  ylab("Rating (Ipsatized)") +
+  ggtitle("Trait Ratings by Responder's Facial Expression")
 
 ```
